@@ -1,0 +1,4 @@
+project_id = "turnos-proveedores"
+
+[functions.crear-reserva]
+verify_jwt = false
