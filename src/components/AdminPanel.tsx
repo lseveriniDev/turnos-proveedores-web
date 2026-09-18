@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { CsvImporter } from "@/components/CsvImporter";
+import { DetalleRecepcion } from "@/components/DetalleRecepcion";
 import { DEMO_AGENDA, EstadoTurno, FRANJAS, TurnoAgenda, fechaArgentina, textoFecha } from "@/lib/domain";
 import { obtenerSupabase, supabaseConfigurado } from "@/lib/supabase/client";
 
@@ -15,6 +16,46 @@ const etiquetaEstado: Record<EstadoTurno, string> = {
   anulado: "Anulado",
 };
 
+async function consultarAgenda(fecha: string) {
+  const supabase = obtenerSupabase();
+  if (!supabase) return { agenda: null, tieneError: false };
+
+  const inicio = `${fecha}T00:00:00-03:00`;
+  const siguiente = new Date(`${fecha}T12:00:00-03:00`);
+  siguiente.setDate(siguiente.getDate() + 1);
+  const hasta = `${siguiente.getFullYear()}-${String(siguiente.getMonth() + 1).padStart(2, "0")}-${String(siguiente.getDate()).padStart(2, "0")}T00:00:00-03:00`;
+  const { data, error } = await supabase
+    .from("turnos")
+    .select("id,codigo,inicio,estado,patente,proveedores(razon_social),ordenes_compra(numero),remitos(numero,storage_path,mime_type)")
+    .gte("inicio", inicio)
+    .lt("inicio", hasta)
+    .order("inicio");
+
+  if (error) return { agenda: null, tieneError: true };
+
+  const agenda = (data ?? []).map((fila) => {
+    const registro = fila as unknown as {
+      id: string; codigo: string; inicio: string; estado: EstadoTurno; patente: string | null;
+      proveedores: { razon_social: string } | null; ordenes_compra: { numero: string } | null;
+      remitos: { numero: string; storage_path: string | null; mime_type: string | null }[] | { numero: string; storage_path: string | null; mime_type: string | null } | null;
+    };
+    const remito = Array.isArray(registro.remitos) ? registro.remitos[0] : registro.remitos;
+    return {
+      id: registro.id,
+      codigo: registro.codigo,
+      hora: new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Argentina/Buenos_Aires" }).format(new Date(registro.inicio)),
+      proveedor: registro.proveedores?.razon_social ?? "Proveedor",
+      ordenCompra: registro.ordenes_compra?.numero ?? "—",
+      remito: remito?.numero ?? "—",
+      rutaRemito: remito?.storage_path ?? null,
+      tipoRemito: remito?.mime_type ?? null,
+      patente: registro.patente ?? "—",
+      estado: registro.estado,
+    } satisfies TurnoAgenda;
+  });
+  return { agenda, tieneError: false };
+}
+
 export function AdminPanel() {
   const [modo, setModo] = useState<Modo>(supabaseConfigurado ? "acceso" : "demo");
   const [email, setEmail] = useState("");
@@ -25,6 +66,9 @@ export function AdminPanel() {
   const [error, setError] = useState("");
   const [horaBloqueo, setHoraBloqueo] = useState("08:00");
   const [motivoBloqueo, setMotivoBloqueo] = useState("");
+  const [turnoEnControl, setTurnoEnControl] = useState<TurnoAgenda | null>(null);
+  const [vistaRemito, setVistaRemito] = useState<{ turno: TurnoAgenda; url: string } | null>(null);
+  const [abriendoRemitoId, setAbriendoRemitoId] = useState<string | null>(null);
 
   const ocupados = useMemo(() => turnos.filter((turno) => turno.estado !== "anulado").length, [turnos]);
 
@@ -33,54 +77,30 @@ export function AdminPanel() {
     setError(esError ? texto : "");
   };
 
-  useEffect(() => {
-    if (modo !== "panel" || !supabaseConfigurado) return;
-    void cargarAgenda();
-    // Solo vuelve a consultar cuando cambia el día o se accede al panel.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fecha, modo]);
-
   const cargarAgenda = async () => {
-    const supabase = obtenerSupabase();
-    if (!supabase) return;
-    const inicio = `${fecha}T00:00:00-03:00`;
-    const siguiente = new Date(`${fecha}T12:00:00-03:00`);
-    siguiente.setDate(siguiente.getDate() + 1);
-    const hasta = `${siguiente.getFullYear()}-${String(siguiente.getMonth() + 1).padStart(2, "0")}-${String(siguiente.getDate()).padStart(2, "0")}T00:00:00-03:00`;
-    const { data, error: errorConsulta } = await supabase
-      .from("turnos")
-      .select("id,codigo,inicio,estado,patente,proveedores(razon_social),ordenes_compra(numero),remitos(numero)")
-      .gte("inicio", inicio)
-      .lt("inicio", hasta)
-      .order("inicio");
-
-    if (errorConsulta) {
+    const resultado = await consultarAgenda(fecha);
+    if (resultado.tieneError) {
       setError("No pudimos cargar la agenda. Verificá que el usuario tenga acceso al panel.");
       return;
     }
-
-    const agenda = (data ?? []).map((fila) => {
-      const registro = fila as unknown as {
-        id: string; codigo: string; inicio: string; estado: EstadoTurno; patente: string | null;
-        proveedores: { razon_social: string } | null; ordenes_compra: { numero: string } | null;
-        remitos: { numero: string; storage_path: string | null }[] | { numero: string; storage_path: string | null } | null;
-      };
-      const remito = Array.isArray(registro.remitos) ? registro.remitos[0] : registro.remitos;
-      return {
-        id: registro.id,
-        codigo: registro.codigo,
-        hora: new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Argentina/Buenos_Aires" }).format(new Date(registro.inicio)),
-        proveedor: registro.proveedores?.razon_social ?? "Proveedor",
-        ordenCompra: registro.ordenes_compra?.numero ?? "—",
-        remito: remito?.numero ?? "—",
-        rutaRemito: remito?.storage_path ?? null,
-        patente: registro.patente ?? "—",
-        estado: registro.estado,
-      } satisfies TurnoAgenda;
-    });
-    setTurnos(agenda);
+    if (resultado.agenda) setTurnos(resultado.agenda);
     setError("");
   };
+
+  useEffect(() => {
+    if (modo !== "panel" || !supabaseConfigurado) return;
+    let vigente = true;
+    void consultarAgenda(fecha).then((resultado) => {
+      if (!vigente) return;
+      if (resultado.tieneError) {
+        setError("No pudimos cargar la agenda. Verificá que el usuario tenga acceso al panel.");
+        return;
+      }
+      if (resultado.agenda) setTurnos(resultado.agenda);
+      setError("");
+    });
+    return () => { vigente = false; };
+  }, [fecha, modo]);
 
   const ingresar = async (evento: FormEvent<HTMLFormElement>) => {
     evento.preventDefault();
@@ -115,19 +135,21 @@ export function AdminPanel() {
     await cargarAgenda();
   };
 
-  const abrirRemito = async (turno: TurnoAgenda) => {
+  const verRemito = async (turno: TurnoAgenda) => {
     if (!turno.rutaRemito || modo === "demo") {
       setMensaje("En la vista de prueba el archivo de remito todavía no está disponible.");
       return;
     }
     const supabase = obtenerSupabase();
     if (!supabase) return;
-    const { data, error: errorUrl } = await supabase.storage.from("remitos").createSignedUrl(turno.rutaRemito, 60);
+    setAbriendoRemitoId(turno.id);
+    const { data, error: errorUrl } = await supabase.storage.from("remitos").createSignedUrl(turno.rutaRemito, 300);
+    setAbriendoRemitoId(null);
     if (errorUrl || !data) {
-      setError("No pudimos abrir el remito.");
+      setError("No pudimos preparar la vista previa del remito.");
       return;
     }
-    window.open(data.signedUrl, "_blank", "noopener,noreferrer");
+    setVistaRemito({ turno, url: data.signedUrl });
   };
 
   const bloquear = async (evento: FormEvent<HTMLFormElement>) => {
@@ -219,7 +241,8 @@ export function AdminPanel() {
                   <td>{turno.patente}</td>
                   <td><span className={`status ${turno.estado}`}>{etiquetaEstado[turno.estado]}</span></td>
                   <td><div className="row-actions">
-                    <button className="text-button" type="button" onClick={() => void abrirRemito(turno)}>Remito</button>
+                    <button className="text-button" type="button" onClick={() => setTurnoEnControl(turno)}>Control</button>
+                    <button className="text-button" disabled={abriendoRemitoId === turno.id} type="button" onClick={() => void verRemito(turno)}>{abriendoRemitoId === turno.id ? "Abriendo…" : "Ver remito"}</button>
                     {turno.estado !== "en_planta" && <button className="text-button" type="button" onClick={() => void cambiarEstado(turno.id, "en_planta")}>Llegó</button>}
                     <button className="text-button danger" type="button" onClick={() => void cambiarEstado(turno.id, "anulado")}>Anular</button>
                   </div></td>
@@ -229,6 +252,35 @@ export function AdminPanel() {
           </tbody>
         </table>
       </div>
+      {vistaRemito && (
+        <div className="remito-modal-backdrop" role="presentation" onMouseDown={() => setVistaRemito(null)}>
+          <section className="remito-modal" role="dialog" aria-modal="true" aria-labelledby="vista-remito-titulo" onMouseDown={(evento) => evento.stopPropagation()}>
+            <header className="remito-modal-heading">
+              <div>
+                <p className="eyebrow">Archivo adjunto</p>
+                <h2 id="vista-remito-titulo">Remito {vistaRemito.turno.remito}</h2>
+                <p>{vistaRemito.turno.proveedor} · {vistaRemito.turno.codigo}</p>
+              </div>
+              <button className="text-button" type="button" onClick={() => setVistaRemito(null)}>Cerrar</button>
+            </header>
+            <div className="remito-preview">
+              {vistaRemito.turno.tipoRemito?.startsWith("image/") ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={vistaRemito.url} alt={`Remito ${vistaRemito.turno.remito}`} />
+              ) : vistaRemito.turno.tipoRemito === "application/pdf" || !vistaRemito.turno.tipoRemito ? (
+                <iframe src={vistaRemito.url} title={`Vista previa del remito ${vistaRemito.turno.remito}`} />
+              ) : (
+                <div className="remito-preview-unsupported"><b>Este formato no admite vista previa en el navegador.</b><span>Podés abrir el archivo para verlo o descargarlo.</span></div>
+              )}
+            </div>
+            <footer className="remito-modal-actions">
+              <span>El acceso vence en 5 minutos.</span>
+              <a className="secondary-button" href={vistaRemito.url} target="_blank" rel="noreferrer">Abrir archivo</a>
+            </footer>
+          </section>
+        </div>
+      )}
+      {turnoEnControl && <DetalleRecepcion key={turnoEnControl.id} turno={turnoEnControl} modoDemo={modo === "demo"} informar={informar} cerrar={() => setTurnoEnControl(null)} />}
       <CsvImporter modoDemo={modo === "demo"} informar={informar} />
       <p className="agenda-footnote">Los enlaces de remito son privados y vencen al minuto: solo los ve el equipo habilitado.</p>
     </section>

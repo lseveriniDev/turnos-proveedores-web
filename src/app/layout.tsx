@@ -9,8 +9,8 @@ const geist = Geist({
 });
 
 export const metadata: Metadata = {
-  title: "Turnos de proveedores",
-  description: "Reserva y administración de turnos de entrega.",
+  title: "Turnos de proveedores | Göttert",
+  description: "Portal de coordinación de entregas para proveedores de Göttert.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

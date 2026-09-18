@@ -1,13 +1,15 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { ClipboardEvent, FormEvent, useEffect, useMemo, useState } from "react";
 
 import { FRANJAS, fechaArgentina, textoFecha } from "@/lib/domain";
 import { obtenerSupabase, supabaseConfigurado } from "@/lib/supabase/client";
 
 type DatosFormulario = {
   proveedor: string;
-  cuit: string;
+  cuitPrefijo: string;
+  cuitNumero: string;
+  cuitVerificador: string;
   email: string;
   ordenCompra: string;
   numeroRemito: string;
@@ -19,7 +21,12 @@ type DatosFormulario = {
 
 type Fase = "acceso" | "datos" | "horario";
 type RespuestaAcceso = { razon_social: string };
-type RespuestaReserva = { codigo: string; turno_id: string };
+type RespuestaReserva = {
+  codigo: string;
+  turno_id: string;
+  email_enviado: boolean;
+  upload: { path: string; token: string };
+};
 
 const fases: { clave: Fase; titulo: string; detalle: string }[] = [
   { clave: "acceso", titulo: "Validá tu acceso", detalle: "CUIT y orden de compra" },
@@ -29,9 +36,11 @@ const fases: { clave: Fase; titulo: string; detalle: string }[] = [
 
 const datosIniciales = (): DatosFormulario => ({
   proveedor: "",
-  cuit: "",
+  cuitPrefijo: "",
+  cuitNumero: "",
+  cuitVerificador: "",
   email: "",
-  ordenCompra: "",
+  ordenCompra: "0008-",
   numeroRemito: "",
   fecha: fechaArgentina(),
   hora: "",
@@ -39,15 +48,13 @@ const datosIniciales = (): DatosFormulario => ({
   transportista: "",
 });
 
-function rutaSeguraDelRemito(archivo: File) {
-  const nombre = archivo.name
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-zA-Z0-9._-]/g, "-")
-    .replace(/-+/g, "-")
-    .slice(0, 100) || "remito";
+function cuitCompleto(datos: DatosFormulario) {
+  return `${datos.cuitPrefijo}${datos.cuitNumero}${datos.cuitVerificador}`;
+}
 
-  return `turnos/${crypto.randomUUID()}/${nombre}`;
+function cuitFormateado(datos: DatosFormulario) {
+  const valor = cuitCompleto(datos);
+  return valor.length === 11 ? `${datos.cuitPrefijo}-${datos.cuitNumero}-${datos.cuitVerificador}` : "—";
 }
 
 function ResumenReserva({
@@ -65,9 +72,9 @@ function ResumenReserva({
 
   return (
     <aside className="booking-intro booking-summary" aria-labelledby="titulo-reserva">
-      <p className="eyebrow">Recepción de mercadería</p>
-      <h1 id="titulo-reserva">Tu turno de entrega</h1>
-      <p>Completá el circuito en orden. Tus datos quedan resumidos acá mientras avanzás.</p>
+      <p className="eyebrow">Göttert · Portal de proveedores</p>
+      <h1 id="titulo-reserva">Coordiná tu entrega.</h1>
+      <p>Validá tu orden de compra, adjuntá el remito y elegí el horario que mejor te quede.</p>
 
       <ol className="info-list phase-list" aria-label="Fases de la reserva">
         {fases.map((item, indice) => {
@@ -87,7 +94,7 @@ function ResumenReserva({
         {proveedorValidado ? (
           <>
             <strong>{proveedorValidado}</strong>
-            <span>CUIT {datos.cuit}</span>
+            <span>CUIT {cuitFormateado(datos)}</span>
             <span>OC {datos.ordenCompra}</span>
             <button className="text-button" type="button" onClick={onEditarAcceso}>Cambiar acceso</button>
           </>
@@ -110,7 +117,6 @@ export function BookingForm() {
   const [errorAcceso, setErrorAcceso] = useState("");
   const [errorDatos, setErrorDatos] = useState("");
   const [horarios, setHorarios] = useState<string[]>(FRANJAS);
-  const [cargandoHorarios, setCargandoHorarios] = useState(false);
   const [errorHorarios, setErrorHorarios] = useState("");
   const [estado, setEstado] = useState<"inicial" | "enviando" | "exito" | "error">("inicial");
   const [mensaje, setMensaje] = useState("");
@@ -123,18 +129,35 @@ export function BookingForm() {
     setErrorDatos("");
   };
 
+  const actualizarCuit = (campo: "cuitPrefijo" | "cuitNumero" | "cuitVerificador", valor: string, maximo: number) => {
+    actualizar(campo, valor.replace(/\D/g, "").slice(0, maximo));
+  };
+
+  const pegarCuit = (evento: ClipboardEvent<HTMLInputElement>) => {
+    const cuit = evento.clipboardData.getData("text").replace(/\D/g, "");
+    if (cuit.length !== 11) return;
+
+    evento.preventDefault();
+    setDatos((anterior) => ({
+      ...anterior,
+      cuitPrefijo: cuit.slice(0, 2),
+      cuitNumero: cuit.slice(2, 10),
+      cuitVerificador: cuit.slice(10),
+    }));
+    setErrorDatos("");
+  };
+
+  const actualizarOc = (valor: string) => {
+    const sufijo = valor.replace(/\D/g, "").slice(0, 8);
+    actualizar("ordenCompra", `0008-${sufijo}`);
+  };
+
   useEffect(() => {
     if (fase !== "horario") return;
 
     const supabase = obtenerSupabase();
-    if (!supabase) {
-      setHorarios(FRANJAS);
-      setErrorHorarios("");
-      return;
-    }
+    if (!supabase) return;
     let vigente = true;
-    setCargandoHorarios(true);
-    setErrorHorarios("");
     void supabase.rpc("horarios_disponibles_publicos", { p_fecha: datos.fecha }).then(({ data, error }) => {
       if (!vigente) return;
       if (error) {
@@ -145,7 +168,6 @@ export function BookingForm() {
         setHorarios(disponibles);
         setDatos((actuales) => disponibles.includes(actuales.hora) ? actuales : { ...actuales, hora: "" });
       }
-      setCargandoHorarios(false);
     });
     return () => { vigente = false; };
   }, [datos.fecha, fase]);
@@ -165,7 +187,7 @@ export function BookingForm() {
 
       const { data, error } = await supabase.rpc("validar_acceso_reserva", {
         p_orden_compra: datos.ordenCompra,
-        p_cuit: datos.cuit,
+        p_cuit: cuitCompleto(datos),
       });
       const respuesta = data as RespuestaAcceso[] | null;
       if (error || !respuesta?.[0]) {
@@ -210,28 +232,37 @@ export function BookingForm() {
       }
       if (!archivo) throw new Error("Adjuntá el remito para continuar.");
 
-      const rutaArchivo = rutaSeguraDelRemito(archivo);
-      const { data: respuesta, error } = await supabase.rpc("crear_turno_publico", {
-        p_orden_compra: datos.ordenCompra,
-        p_cuit: datos.cuit,
-        p_email: datos.email,
-        p_numero_remito: datos.numeroRemito,
-        p_fecha: datos.fecha,
-        p_hora: datos.hora,
-        p_patente: datos.patente || null,
-        p_transportista: datos.transportista || null,
-        p_archivo_path: rutaArchivo,
-        p_archivo_mime: archivo.type,
-        p_archivo_bytes: archivo.size,
+      const { data: respuesta, error } = await supabase.functions.invoke("crear-reserva", {
+        body: {
+          proveedor: proveedorValidado,
+          cuit: cuitCompleto(datos),
+          email: datos.email,
+          ordenCompra: datos.ordenCompra,
+          numeroRemito: datos.numeroRemito,
+          fecha: datos.fecha,
+          hora: datos.hora,
+          patente: datos.patente || null,
+          transportista: datos.transportista || null,
+          archivo: { nombre: archivo.name, tipo: archivo.type, bytes: archivo.size },
+        },
       });
       const data = respuesta as RespuestaReserva | null;
-      if (error || !data) throw new Error(error?.message || "No pudimos registrar el turno.");
+      if (error || !data) {
+        const contexto = (error as { context?: { clone?: () => Response } } | null)?.context;
+        if (contexto?.clone) {
+          const detalle = await contexto.clone().json().catch(() => null) as { error?: string } | null;
+          if (detalle?.error) throw new Error(detalle.error);
+        }
+        throw new Error(error?.message || "No pudimos registrar el turno.");
+      }
 
       const { error: errorArchivo } = await supabase.storage
         .from("remitos")
-        .upload(rutaArchivo, archivo, { contentType: archivo.type, upsert: false });
+        .uploadToSignedUrl(data.upload.path, data.upload.token, archivo, { contentType: archivo.type });
       if (errorArchivo) {
         setMensaje("El turno quedó reservado, pero no pudimos adjuntar el archivo. Avisanos antes de la entrega.");
+      } else if (!data.email_enviado) {
+        setMensaje("El turno quedó reservado. La confirmación por correo se está terminando de configurar.");
       }
 
       setCodigo(data.codigo);
@@ -292,11 +323,17 @@ export function BookingForm() {
           <form className="access-check-form" onSubmit={validarAcceso}>
             <label className="field">
               <span>CUIT</span>
-              <input required value={datos.cuit} onChange={(e) => actualizar("cuit", e.target.value)} placeholder="30-12345678-9" inputMode="numeric" />
+              <span className="cuit-inputs">
+                <input aria-label="Primeros dos dígitos del CUIT" required value={datos.cuitPrefijo} onChange={(e) => actualizarCuit("cuitPrefijo", e.target.value, 2)} onPaste={pegarCuit} placeholder="30" inputMode="numeric" maxLength={2} />
+                <b aria-hidden="true">-</b>
+                <input aria-label="Ocho dígitos centrales del CUIT" required value={datos.cuitNumero} onChange={(e) => actualizarCuit("cuitNumero", e.target.value, 8)} onPaste={pegarCuit} placeholder="12345678" inputMode="numeric" maxLength={8} />
+                <b aria-hidden="true">-</b>
+                <input aria-label="Dígito verificador del CUIT" required value={datos.cuitVerificador} onChange={(e) => actualizarCuit("cuitVerificador", e.target.value, 1)} onPaste={pegarCuit} placeholder="9" inputMode="numeric" maxLength={1} />
+              </span>
             </label>
             <label className="field">
               <span>Orden de compra</span>
-              <input required value={datos.ordenCompra} onChange={(e) => actualizar("ordenCompra", e.target.value)} placeholder="OC-000123" />
+              <span className="oc-input"><b aria-hidden="true">0008-</b><input aria-label="Número de orden de compra luego del prefijo 0008" required value={datos.ordenCompra.replace(/^0008-/, "")} onChange={(e) => actualizarOc(e.target.value)} placeholder="00009258" inputMode="numeric" maxLength={8} /></span>
             </label>
             <button className="primary-button" disabled={validandoAcceso} type="submit">
               {validandoAcceso ? "Validando datos…" : "Continuar"}
@@ -369,9 +406,8 @@ export function BookingForm() {
                         </label>
                       ))}
                     </div>
-                    {cargandoHorarios && <p className="slots-message">Buscando horarios disponibles…</p>}
-                    {!cargandoHorarios && errorHorarios && <p className="slots-message error-text">{errorHorarios}</p>}
-                    {!cargandoHorarios && !errorHorarios && horarios.length === 0 && <p className="slots-message">No quedan horarios libres para ese día.</p>}
+                    {errorHorarios && <p className="slots-message error-text">{errorHorarios}</p>}
+                    {!errorHorarios && horarios.length === 0 && <p className="slots-message">No quedan horarios libres para ese día.</p>}
                   </fieldset>
                 </div>
               )}

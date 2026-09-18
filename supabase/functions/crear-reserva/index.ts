@@ -14,6 +14,8 @@ type Solicitud = {
   archivo: Archivo;
 };
 
+type RespuestaCorreo = { codigo: string; email_enviado: boolean };
+
 const TIPOS_PERMITIDOS = new Set([
   "application/pdf",
   "image/jpeg",
@@ -43,6 +45,50 @@ function archivoSeguro(nombre: string) {
     .slice(0, 100) || "remito";
 }
 
+function escaparHtml(valor: string) {
+  return valor.replace(/[&<>"']/g, (caracter) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[caracter] ?? caracter);
+}
+
+function fechaLegible(fecha: string) {
+  const [anio, mes, dia] = fecha.split("-");
+  return anio && mes && dia ? `${dia}/${mes}/${anio}` : fecha;
+}
+
+function claveServicio() {
+  const directa = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SECRET_KEY");
+  if (directa) return directa;
+  try {
+    return JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") || "{}").default || null;
+  } catch {
+    return null;
+  }
+}
+
+async function enviarConfirmacion(datos: Solicitud, reserva: RespuestaCorreo) {
+  const apiKey = Deno.env.get("RESEND_API_KEY");
+  if (!apiKey) return false;
+
+  const destinatario = datos.email.trim();
+  const origen = Deno.env.get("RESEND_FROM") || "Turnos Gottert <onboarding@resend.dev>";
+  const proveedor = escaparHtml(datos.proveedor || "Proveedor");
+  const codigo = escaparHtml(reserva.codigo);
+  const orden = escaparHtml(datos.ordenCompra);
+  const remito = escaparHtml(datos.numeroRemito);
+  const fecha = escaparHtml(fechaLegible(datos.fecha));
+  const hora = escaparHtml(datos.hora);
+  const respuesta = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      from: origen,
+      to: [destinatario],
+      subject: `Confirmación de turno ${reserva.codigo}`,
+      html: `<main style="max-width:600px;margin:0 auto;padding:32px;font-family:Arial,sans-serif;color:#202020"><p style="margin:0 0 18px;color:#007a39;font-size:12px;font-weight:700;letter-spacing:1px">GÖTTERT · RECEPCIÓN DE MERCADERÍA</p><h1 style="margin:0 0 12px;font-size:28px">Tu turno quedó confirmado</h1><p style="line-height:1.6">Hola, ${proveedor}. Registramos tu turno de entrega. Conservá este correo como comprobante.</p><section style="margin:24px 0;padding:20px;background:#f6f6f3;border-top:5px solid #ffcc00;border-radius:12px"><p style="margin:0 0 12px;font-size:22px;font-weight:700;color:#007a39">${codigo}</p><p style="margin:7px 0"><b>Fecha:</b> ${fecha}</p><p style="margin:7px 0"><b>Horario:</b> ${hora}</p><p style="margin:7px 0"><b>OC:</b> ${orden}</p><p style="margin:7px 0"><b>Remito:</b> ${remito}</p></section><p style="line-height:1.6">Si necesitás modificar la entrega, comunicate con el equipo de recepción.</p></main>`,
+    }),
+  });
+  return respuesta.ok;
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (request.method !== "POST") return responder({ error: "Método no permitido." }, 405);
@@ -57,8 +103,7 @@ Deno.serve(async (request) => {
       return responder({ error: "El remito debe ser PDF o imagen y no superar 10 MB." }, 400);
     }
 
-    const claves = JSON.parse(Deno.env.get("SUPABASE_SECRET_KEYS") || "{}");
-    const claveSecreta = claves.default;
+    const claveSecreta = claveServicio();
     const url = Deno.env.get("SUPABASE_URL");
     if (!url || !claveSecreta) return responder({ error: "La función no está configurada." }, 500);
 
@@ -96,7 +141,8 @@ Deno.serve(async (request) => {
     }
 
     const turno = reserva as { turno_id: string; codigo: string };
-    return responder({ turno_id: turno.turno_id, codigo: turno.codigo, upload });
+    const emailEnviado = await enviarConfirmacion(datos, { codigo: turno.codigo, email_enviado: false });
+    return responder({ turno_id: turno.turno_id, codigo: turno.codigo, upload, email_enviado: emailEnviado });
   } catch {
     return responder({ error: "No pudimos procesar la solicitud. Probá nuevamente." }, 400);
   }

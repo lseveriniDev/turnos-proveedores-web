@@ -8,6 +8,7 @@ export type TurnoAgenda = {
   ordenCompra: string;
   remito: string;
   rutaRemito?: string | null;
+  tipoRemito?: string | null;
   patente: string;
   estado: EstadoTurno;
 };
