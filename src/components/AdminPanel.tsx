@@ -282,7 +282,7 @@ export function AdminPanel() {
       )}
       {turnoEnControl && <DetalleRecepcion key={turnoEnControl.id} turno={turnoEnControl} modoDemo={modo === "demo"} informar={informar} cerrar={() => setTurnoEnControl(null)} />}
       <CsvImporter modoDemo={modo === "demo"} informar={informar} />
-      <p className="agenda-footnote">Los enlaces de remito son privados y vencen al minuto: solo los ve el equipo habilitado.</p>
+      <p className="agenda-footnote">Los enlaces de remito son privados y vencen a los cinco minutos: solo los ve el equipo habilitado.</p>
     </section>
   );
 }
