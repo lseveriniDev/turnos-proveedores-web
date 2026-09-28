@@ -229,8 +229,8 @@ export function AdminPanel() {
           <thead><tr><th>Hora</th><th>Proveedor</th><th>OC / remito</th><th>Patente</th><th>Estado</th><th><span className="sr-only">Acciones</span></th></tr></thead>
           <tbody>
             {FRANJAS.map((hora) => {
-              const turno = turnos.find((item) => item.hora === hora);
-              if (!turno || turno.estado === "anulado") {
+              const turno = turnos.find((item) => item.hora === hora && item.estado !== "anulado");
+              if (!turno) {
                 return <tr key={hora} className="free-slot"><td>{hora}</td><td colSpan={5}>Disponible</td></tr>;
               }
               return (
