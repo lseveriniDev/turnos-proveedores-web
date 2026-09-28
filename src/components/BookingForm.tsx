@@ -24,9 +24,10 @@ type RespuestaAcceso = { razon_social: string };
 type RespuestaReserva = {
   codigo: string;
   turno_id: string;
-  email_enviado: boolean;
+  confirmacion_token: string;
   upload: { path: string; token: string };
 };
+type RespuestaConfirmacion = { confirmado: boolean; email_enviado: boolean };
 
 const fases: { clave: Fase; titulo: string; detalle: string }[] = [
   { clave: "acceso", titulo: "Validá tu acceso", detalle: "CUIT y orden de compra" },
@@ -234,6 +235,7 @@ export function BookingForm() {
 
       const { data: respuesta, error } = await supabase.functions.invoke("crear-reserva", {
         body: {
+          accion: "crear",
           proveedor: proveedorValidado,
           cuit: cuitCompleto(datos),
           email: datos.email,
@@ -256,16 +258,35 @@ export function BookingForm() {
         throw new Error(error?.message || "No pudimos registrar el turno.");
       }
 
+      if (!data.confirmacion_token || !data.upload?.path || !data.upload?.token) {
+        throw new Error("La reserva no devolvió los datos necesarios para adjuntar el remito.");
+      }
+      setCodigo(data.codigo);
       const { error: errorArchivo } = await supabase.storage
         .from("remitos")
         .uploadToSignedUrl(data.upload.path, data.upload.token, archivo, { contentType: archivo.type });
       if (errorArchivo) {
-        setMensaje("El turno quedó reservado, pero no pudimos adjuntar el archivo. Avisanos antes de la entrega.");
-      } else if (!data.email_enviado) {
-        setMensaje("El turno quedó reservado. La confirmación por correo se está terminando de configurar.");
+        const { data: cancelacion, error: errorCancelacion } = await supabase.functions.invoke("crear-reserva", {
+          body: { accion: "cancelar", turno_id: data.turno_id, token: data.confirmacion_token },
+        });
+        if (!errorCancelacion && (cancelacion as { cancelado?: boolean } | null)?.cancelado) {
+          throw new Error("No pudimos adjuntar el remito. El horario quedó libre para que vuelvas a intentarlo.");
+        }
+        setMensaje("El turno quedó reservado, pero no pudimos adjuntar el remito. Comunicate con recepción e indicá el código.");
+        setEstado("exito");
+        return;
       }
 
-      setCodigo(data.codigo);
+      const { data: confirmacion, error: errorConfirmacion } = await supabase.functions.invoke("crear-reserva", {
+        body: { accion: "confirmar", turno_id: data.turno_id, token: data.confirmacion_token },
+      });
+      const resultado = confirmacion as RespuestaConfirmacion | null;
+      if (errorConfirmacion || !resultado?.confirmado) {
+        setMensaje("El remito se adjuntó, pero no pudimos completar la confirmación. Comunicate con recepción e indicá el código.");
+      } else if (!resultado.email_enviado) {
+        setMensaje("El turno quedó confirmado, pero no pudimos enviar el correo. Conservá este código de reserva.");
+      }
+
       setEstado("exito");
     } catch (error) {
       setEstado("error");

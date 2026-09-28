@@ -1,61 +1,50 @@
 # Turnos de proveedores
 
-Aplicación web para que los proveedores reserven un turno de entrega y el equipo de recepción administre la agenda.
+Portal público de reservas y panel de recepción de Göttert. El sitio es una exportación estática de Next.js publicada en Cloudflare Pages. Supabase guarda los datos, los remitos privados y las cuentas del panel; la Edge Function `crear-reserva` gestiona las reservas.
 
-## Abrirla en VS Code
+## Estado y direcciones
 
-1. Abrí esta carpeta con VS Code.
-2. Abrí la terminal integrada (`Terminal` → `New Terminal`).
-3. Ejecutá `npm run dev`.
-4. Entrá a [http://localhost:3000](http://localhost:3000).
+- Portal: <https://turnos-proveedores-gottert.pages.dev/>
+- Panel: <https://turnos-proveedores-gottert.pages.dev/panel/>
+- Proyecto Supabase: `turnos-proveedores` (`ppcyiiiqzwzkayjklopv`).
+- La publicación en Pages es manual (Direct Upload). El repositorio no está conectado a Pages para publicar automáticamente.
 
-El portal de proveedores está en `/` y el panel interno en `/panel`.
+## Desarrollo local
 
-Mientras no exista un archivo `.env.local`, la aplicación funciona en **vista de prueba**: deja recorrer todas las pantallas pero no guarda información real.
+1. Instalá las dependencias con `npm ci`.
+2. Copiá `.env.example` a `.env.local` y verificá la URL y la Publishable key de Supabase.
+3. Ejecutá `npm run dev` y abrí <http://localhost:3000/>.
 
-## Conectar Supabase
+Sin `.env.local`, las pantallas funcionan en modo de demostración y no guardan datos. Nunca pongas una Secret key o una service role key en un archivo `NEXT_PUBLIC_`.
 
-Cuando esté creada la cuenta y el proyecto de Supabase:
+## Base de datos y permisos
 
-1. Copiá `.env.example` como `.env.local`.
-2. En Supabase, abrí `Connect` y copiá la URL del proyecto y la **Publishable key** en ese archivo.
-3. En `SQL Editor`, ejecutá el contenido de `supabase/migrations/20260910_000001_turnos_base.sql`, `supabase/migrations/20260910_000002_reserva_estatica.sql` y `supabase/migrations/20260910184249_validar_acceso_reserva.sql`.
-4. Creá el primer usuario del panel desde `Authentication` → `Users` → `Add user`.
-5. Con el identificador de ese usuario, ejecutá en el SQL Editor:
+Las definiciones están en `supabase/migrations/`. Las primeras migraciones se aplicaron manualmente al proyecto existente; verificá el esquema antes de aplicarlas en una base nueva. La migración `restringir_creacion_publica_turnos` revoca la ejecución pública de `crear_turno_publico`: la reserva debe pasar por la Edge Function, que la ejecuta con la clave de servicio. Aplicá esta migración **después** de publicar el portal que invoca la Edge Function; el sitio anterior llama a la función SQL directamente.
 
-```sql
-insert into public.profiles (id, nombre, rol)
-values ('ID_DEL_USUARIO', 'Lucila', 'administrador');
-```
+El panel requiere un usuario de Supabase Auth con una fila `profiles` cuyo `rol` sea `administrador`. Las reglas de acceso de la base protegen las tablas del panel.
 
-No copies ni publiques una **Secret key**. La aplicación solo utiliza la Publishable key, que es la diseñada para el navegador junto con las reglas de seguridad de la base.
+## Reserva de un proveedor
 
-## Importar proveedores y órdenes
+1. El proveedor valida CUIT y OC abierta.
+2. Completa los datos y elige horario.
+3. La Edge Function crea el turno en estado `reservado` y entrega una URL de carga firmada.
+4. El navegador sube el remito al bucket privado.
+5. La Edge Function comprueba el archivo, marca el turno `confirmado` y envía el correo.
 
-Desde el panel se importa un CSV con estas columnas:
+Si falla la carga, el portal intenta anular el turno para liberar el horario. Si la confirmación o el correo falla después de subir el remito, muestra el código y pide comunicarse con recepción. El correo requiere los secretos `RESEND_API_KEY` y `RESEND_FROM` en la Edge Function; `RESEND_FROM` debe usar un dominio verificado. La URL y la clave de servicio de Supabase se proporcionan al entorno de la función, nunca al navegador.
 
-```text
-cuit;razon_social;email;codigo_externo;orden_compra
-30-12345678-9;Proveedor de ejemplo S.A.;contacto@proveedor.com;PR001;OC-000123
-```
+## Importación desde Summa
 
-La plantilla se puede descargar desde el panel. El importador habilita a los proveedores cargados y deja sus órdenes abiertas para reservar.
+En el panel, elegí el reporte de OCs y el catálogo de proveedores en formato `.xlsx`, revisá la vista previa y confirmá la actualización. Si hay OCs para cerrar, el panel exige confirmar ese cierre. La importación carga también los renglones de las OCs, necesarios para el control detallado de recepción. Un CSV preparado sirve para una carga parcial y no cierra OCs.
 
-## Publicar sin servidor propio
+La importación hace varias operaciones consecutivas en la base. Si alguna falla, revisá el mensaje y la cantidad de proveedores, OCs y renglones antes de repetirla.
 
-El proyecto genera una carpeta `out` lista para Cloudflare Pages. Cuando tengamos la cuenta:
+## Verificación y publicación
 
-1. Subimos este proyecto a un repositorio privado de GitHub.
-2. En Cloudflare Pages, conectamos ese repositorio.
-3. Elegimos el preset **Next.js (Static HTML Export)**, con `npx next build` como comando y `out` como directorio de salida.
-4. Cloudflare entrega una URL pública con HTTPS. Más adelante se puede vincular un subdominio de la empresa.
+1. Ejecutá `npm run lint`, `npx deno check supabase/functions/crear-reserva/index.ts` y `npm run build`.
+2. Desplegá la Edge Function `crear-reserva` en Supabase con `verify_jwt = false` (portal público).
+3. Ejecutá `npm run deploy` para publicar la carpeta `out` en el proyecto existente de Cloudflare Pages.
+4. Aplicá la migración de restricción de permisos y verificá que `anon` y `authenticated` ya no puedan ejecutar `crear_turno_publico`, pero `service_role` sí.
+5. Probá una reserva completa con un proveedor y una OC de prueba: archivo, correo, agenda, vista del remito, llegada y anulación.
 
-## Qué hace esta primera versión
-
-- Formulario público en tres fases: validación de CUIT + OC, datos del remito y elección de horario.
-- Validación de proveedor/OC habilitados, franja horaria, anticipación y doble reserva.
-- Remitos privados: el proveedor puede subirlos sólo después de una reserva válida; el panel los abre con enlaces de un minuto.
-- Panel con agenda diaria, llegada, anulación, bloqueo de horarios e importación CSV.
-- Inicio de sesión para el panel con Supabase Auth.
-
-No incluye OCR, integración automática con Summa, n8n, Docker, Linux ni envío de correos. Son agregados posibles si el piloto demuestra que el circuito sirve.
+El panel permite registrar renglones recibidos y compararlos con el saldo pendiente de la OC. Ese control no modifica ni cierra la OC automáticamente.
