@@ -195,6 +195,21 @@ td small { margin-top: 0.1rem; color: var(--ink-soft); font-size: 0.77rem; }
 .detail-heading h2 { margin: 0.05rem 0 0.25rem; font-size: 1.3rem; }
 .detail-heading p:not(.eyebrow) { margin: 0; color: var(--ink-soft); font-size: 0.88rem; }
 .detail-note { margin: 1rem 0; padding: 0.72rem 0.82rem; color: var(--ink-soft); background: white; border: 1px solid var(--line); border-radius: 0.55rem; font-size: 0.83rem; }
+.remito-reading { margin: 1rem 0; padding: 1rem; border: 1px solid var(--line); border-radius: 0.65rem; background: white; }
+.remito-reading-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.remito-reading-heading h3 { margin: 0 0 0.25rem; font-size: 1rem; }
+.remito-reading-heading p, .remito-reading-hint { margin: 0; color: var(--ink-soft); font-size: 0.8rem; }
+.remito-reading-heading .secondary-button { width: auto; min-width: 10rem; margin: 0; white-space: nowrap; }
+.remito-reading-hint { margin-top: 0.65rem; }
+.remito-proposals { display: grid; gap: 0.7rem; margin-top: 0.9rem; }
+.remito-proposal { padding: 0.75rem; border: 1px solid var(--line); border-radius: 0.55rem; background: #f8fbfa; }
+.remito-proposal > p { margin: 0 0 0.6rem; color: var(--ink-soft); font-size: 0.8rem; }
+.remito-proposal-fields { display: grid; grid-template-columns: minmax(12rem, 1fr) minmax(7rem, 0.4fr) minmax(13rem, 1.3fr) auto; gap: 0.55rem; align-items: end; }
+.remito-proposal-fields .field input, .remito-proposal-fields .secondary-button { min-height: 2.65rem; }
+.remito-proposal-fields .secondary-button { width: auto; margin: 0; white-space: nowrap; }
+.remito-proposal-warning { display: block; margin-top: 0.45rem; color: var(--danger); }
+.remito-extracted-text { margin-top: 0.8rem; color: var(--ink-soft); font-size: 0.8rem; }
+.remito-extracted-text pre { max-height: 15rem; overflow: auto; margin: 0.5rem 0 0; padding: 0.65rem; background: #f4f6f5; color: var(--ink); white-space: pre-wrap; font: inherit; }
 .detail-summary { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1rem 0; }
 .detail-summary span { padding: 0.32rem 0.58rem; color: var(--teal-dark); background: var(--teal-pale); border-radius: 999px; font-size: 0.78rem; }
 .detail-summary span.needs-review { color: var(--warning); background: var(--warning-pale); }
@@ -235,6 +250,9 @@ td small { margin-top: 0.1rem; color: var(--ink-soft); font-size: 0.77rem; }
   .import-card { align-items: stretch; flex-direction: column; }
   .import-actions { justify-content: flex-start; }
   .detail-form { grid-template-columns: 1fr; }
+  .remito-proposal-fields { grid-template-columns: 1fr 0.5fr; }
+  .remito-proposal-description { grid-column: 1 / -1; }
+  .remito-proposal-fields .secondary-button { grid-column: 1 / -1; justify-self: start; }
   .remito-modal { max-height: 94vh; }
 }
 @media (max-width: 590px) {
@@ -252,6 +270,9 @@ td small { margin-top: 0.1rem; color: var(--ink-soft); font-size: 0.77rem; }
   .block-form { grid-template-columns: 5.1rem 1fr; min-width: 100%; }
   .block-form .secondary-button { grid-column: 1 / -1; }
   .detail-heading { align-items: flex-start; flex-direction: column; }
+  .remito-reading-heading { flex-direction: column; }
+  .remito-proposal-fields { grid-template-columns: 1fr; }
+  .remito-proposal-description { grid-column: auto; }
   .detail-form-fields { grid-template-columns: 1fr; }
   .detail-description { grid-column: auto; }
   .remito-modal-heading, .remito-modal-actions { align-items: flex-start; flex-direction: column; }
