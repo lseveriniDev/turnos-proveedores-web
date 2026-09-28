@@ -66,9 +66,9 @@ function claveServicio() {
 
 async function enviarConfirmacion(datos: DatosCorreo, reserva: RespuestaCorreo) {
   const apiKey = Deno.env.get("RESEND_API_KEY");
-  const origen = Deno.env.get("RESEND_FROM");
-  if (!apiKey || !origen) {
-    console.error(`Correo sin configurar: ${!apiKey ? "RESEND_API_KEY " : ""}${!origen ? "RESEND_FROM" : ""}`.trim());
+  const origen = Deno.env.get("RESEND_FROM") || "Turnos Göttert <lseverini@gottert.com.ar>";
+  if (!apiKey) {
+    console.error("Correo sin configurar: RESEND_API_KEY");
     return false;
   }
 
