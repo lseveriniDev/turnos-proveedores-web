@@ -52,7 +52,7 @@ function numero(valor: number | string | null | undefined) {
 }
 
 function formatoNumero(valor: number) {
-  return new Intl.NumberFormat("es-AR", { maximumFractionDigits: 3 }).format(valor);
+  return new Intl.NumberFormat("es-AR", { maximumFractionDigits: 4 }).format(valor);
 }
 
 function formatoPrecio(valor: number | null, moneda: string | null) {
