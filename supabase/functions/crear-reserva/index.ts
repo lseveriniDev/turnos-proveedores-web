@@ -67,7 +67,10 @@ function claveServicio() {
 async function enviarConfirmacion(datos: DatosCorreo, reserva: RespuestaCorreo) {
   const apiKey = Deno.env.get("RESEND_API_KEY");
   const origen = Deno.env.get("RESEND_FROM");
-  if (!apiKey || !origen) return false;
+  if (!apiKey || !origen) {
+    console.error(`Correo sin configurar: ${!apiKey ? "RESEND_API_KEY " : ""}${!origen ? "RESEND_FROM" : ""}`.trim());
+    return false;
+  }
 
   const destinatario = datos.email.trim();
   const proveedor = escaparHtml(datos.proveedor || "Proveedor");
