@@ -49,4 +49,4 @@ La importación hace varias operaciones consecutivas en la base. Si alguna falla
 4. Aplicá la migración de restricción de permisos y verificá que `anon` y `authenticated` ya no puedan ejecutar `crear_turno_publico`, pero `service_role` sí.
 5. Probá una reserva completa con un proveedor y una OC de prueba: archivo, correo, agenda, vista del remito, llegada y anulación.
 
-El panel permite registrar renglones recibidos y compararlos con el saldo pendiente de la OC. Ese control no modifica ni cierra la OC automáticamente.
+El control de recepción muestra primero los renglones detectados en el remito y, en texto secundario, las cantidades de la OC. Los datos detectados quedan como borrador hasta que recepción pulse «Guardar control»; cada renglón se puede corregir con el lápiz y el botón «Agregar» abre un formulario breve. Ese control no modifica ni cierra la OC automáticamente.

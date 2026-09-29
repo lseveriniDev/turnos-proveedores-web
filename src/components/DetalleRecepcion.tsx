@@ -3,114 +3,74 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 import { TurnoAgenda } from "@/lib/domain";
-import { LecturaRemito, sugerirCodigo } from "@/lib/remito/parse";
+import { sugerirCodigo } from "@/lib/remito/parse";
 import { obtenerSupabase } from "@/lib/supabase/client";
 
 type LineaOrden = {
-  id: string;
   renglon: number;
   producto_codigo: string;
   descripcion_producto: string | null;
   unidad_medida: string | null;
   moneda: string | null;
+  cantidad_ordenada: number | string;
   cantidad_pendiente: number | string;
-  precio_unitario: number | string | null;
 };
 
-type LineaRemito = {
+type LineaGuardada = {
   id: string;
   renglon: number;
   producto_codigo: string;
   descripcion_producto: string | null;
-  unidad_medida: string | null;
-  moneda: string | null;
   cantidad: number | string;
-  precio_unitario: number | string | null;
 };
 
-type ProductoOc = {
+type LineaControl = {
+  clave: string;
+  id: string | null;
+  renglon: number | null;
   codigo: string;
-  descripcion: string | null;
-  unidad: string | null;
-  pendiente: number;
-  precio: number | null;
-};
-
-type PropuestaRemito = {
-  id: number;
-  codigo: string;
-  cantidad: string;
   descripcion: string;
+  cantidad: string;
+  pendienteGuardar: boolean;
 };
+
+type Edicion = Pick<LineaControl, "clave" | "codigo" | "descripcion" | "cantidad">;
 
 const LINEAS_DEMO: LineaOrden[] = [
-  { id: "demo-1", renglon: 1, producto_codigo: "PAP-A4-80", descripcion_producto: "Resma papel A4 80 g", unidad_medida: "UN", moneda: "ARS", cantidad_pendiente: 40, precio_unitario: 7500 },
-  { id: "demo-2", renglon: 2, producto_codigo: "SOB-OF-90", descripcion_producto: "Sobre oficio blanco", unidad_medida: "UN", moneda: "ARS", cantidad_pendiente: 100, precio_unitario: 185 },
+  { renglon: 1, producto_codigo: "PAP-A4-80", descripcion_producto: "Resma papel A4 80 g", unidad_medida: "UN", moneda: "ARS", cantidad_ordenada: 40, cantidad_pendiente: 40 },
+  { renglon: 2, producto_codigo: "SOB-OF-90", descripcion_producto: "Sobre oficio blanco", unidad_medida: "UN", moneda: "ARS", cantidad_ordenada: 100, cantidad_pendiente: 100 },
 ];
 
-function normalizarCodigo(valor: string) {
-  return valor.trim().toUpperCase();
-}
+const CAMPOS_LINEA = "id,renglon,producto_codigo,descripcion_producto,cantidad";
 
-function normalizarNumeroRemito(valor: string) {
-  return valor.match(/\d+/g)?.map((parte) => parte.replace(/^0+(?=\d)/, "")).join("-") ?? valor.trim().toUpperCase();
-}
+function normalizarCodigo(valor: string) { return valor.trim().toUpperCase(); }
+function numero(valor: number | string | null | undefined) { return Number(String(valor ?? "0").replace(",", ".")); }
+function formatoNumero(valor: number) { return new Intl.NumberFormat("es-AR", { maximumFractionDigits: 4 }).format(valor); }
 
-function numero(valor: number | string | null | undefined) {
-  if (typeof valor === "number") return valor;
-  if (!valor) return 0;
-  const convertido = Number(String(valor).replace(",", "."));
-  return Number.isFinite(convertido) ? convertido : 0;
-}
-
-function formatoNumero(valor: number) {
-  return new Intl.NumberFormat("es-AR", { maximumFractionDigits: 4 }).format(valor);
-}
-
-function formatoPrecio(valor: number | null, moneda: string | null) {
-  if (valor === null) return "—";
-  const prefijo = moneda ? `${moneda} ` : "";
-  return `${prefijo}${new Intl.NumberFormat("es-AR", { maximumFractionDigits: 2 }).format(valor)}`;
-}
-
-export function DetalleRecepcion({
-  turno,
-  modoDemo,
-  informar,
-  cerrar,
-}: {
+export function DetalleRecepcion({ turno, modoDemo, informar, cerrar }: {
   turno: TurnoAgenda;
   modoDemo: boolean;
   informar: (texto: string, esError?: boolean) => void;
   cerrar: () => void;
 }) {
-  const [lineasOc, setLineasOc] = useState<LineaOrden[]>(() => modoDemo ? LINEAS_DEMO : []);
-  const [lineasRemito, setLineasRemito] = useState<LineaRemito[]>([]);
+  const [lineasOc, setLineasOc] = useState<LineaOrden[]>(modoDemo ? LINEAS_DEMO : []);
+  const [lineas, setLineas] = useState<LineaControl[]>([]);
   const [remitoId, setRemitoId] = useState<string | null>(null);
   const [cargando, setCargando] = useState(!modoDemo);
   const [guardando, setGuardando] = useState(false);
-  const [error, setError] = useState("");
-  const [codigo, setCodigo] = useState("");
-  const [cantidad, setCantidad] = useState("");
-  const [precio, setPrecio] = useState("");
-  const [descripcion, setDescripcion] = useState("");
   const [leyendo, setLeyendo] = useState(false);
   const [progresoLectura, setProgresoLectura] = useState("");
-  const [lectura, setLectura] = useState<LecturaRemito | null>(null);
-  const [propuestas, setPropuestas] = useState<PropuestaRemito[]>([]);
-  const [guardandoPropuesta, setGuardandoPropuesta] = useState<number | null>(null);
+  const [error, setError] = useState("");
+  const [edicion, setEdicion] = useState<Edicion | null>(null);
+  const [errorEdicion, setErrorEdicion] = useState("");
 
   useEffect(() => {
     if (modoDemo) return;
-
     let vigente = true;
     void (async () => {
       const supabase = obtenerSupabase();
       if (!supabase) {
-        if (vigente) {
-          setError("No encontramos la conexión para cargar el control.");
-          setCargando(false);
-        }
+        if (vigente) { setError("No encontramos la conexión para cargar el control."); setCargando(false); }
         return;
       }
       const [{ data: orden, error: errorOrden }, { data: remito, error: errorRemito }] = await Promise.all([
@@ -123,225 +83,161 @@ export function DetalleRecepcion({
         setCargando(false);
         return;
       }
-
       const [{ data: detalleOc, error: errorDetalleOc }, { data: detalleRemito, error: errorDetalleRemito }] = await Promise.all([
-        supabase.from("lineas_orden_compra").select("id,renglon,producto_codigo,descripcion_producto,unidad_medida,moneda,cantidad_pendiente,precio_unitario").eq("orden_compra_id", orden.id).order("renglon"),
-        supabase.from("lineas_remito").select("id,renglon,producto_codigo,descripcion_producto,unidad_medida,moneda,cantidad,precio_unitario").eq("remito_id", remito.id).order("renglon"),
+        supabase.from("lineas_orden_compra").select("renglon,producto_codigo,descripcion_producto,unidad_medida,moneda,cantidad_ordenada,cantidad_pendiente").eq("orden_compra_id", orden.id).order("renglon"),
+        supabase.from("lineas_remito").select(CAMPOS_LINEA).eq("remito_id", remito.id).order("renglon"),
       ]);
       if (!vigente) return;
       if (errorDetalleOc || errorDetalleRemito) {
-        setError("No pudimos cargar el detalle. Verificá que la actualización de Summa haya terminado.");
+        setError("No pudimos cargar el control. Intentá abrirlo nuevamente.");
         setCargando(false);
         return;
       }
-      setLineasOc((detalleOc ?? []) as LineaOrden[]);
-      setLineasRemito((detalleRemito ?? []) as LineaRemito[]);
+      const oc = (detalleOc ?? []) as LineaOrden[];
+      const guardadas = (detalleRemito ?? []) as LineaGuardada[];
+      setLineasOc(oc);
       setRemitoId(remito.id);
+      setLineas(guardadas.length ? guardadas.map((linea) => ({
+        clave: linea.id, id: linea.id, renglon: linea.renglon,
+        codigo: linea.producto_codigo, descripcion: linea.descripcion_producto ?? "",
+        cantidad: String(linea.cantidad),
+        pendienteGuardar: false,
+      })) : (turno.lineasDeclaradas ?? []).map((linea, indice) => {
+        const producto = oc.find((item) => item.renglon === linea.renglonOc);
+        return {
+          clave: `detectada-${indice}`, id: null, renglon: null,
+          codigo: producto?.producto_codigo ?? "", descripcion: linea.descripcion,
+          cantidad: String(linea.cantidad), pendienteGuardar: true,
+        };
+      }));
       setCargando(false);
     })();
-
     return () => { vigente = false; };
   }, [modoDemo, turno]);
 
   const productosOc = useMemo(() => {
-    const productos = new Map<string, ProductoOc>();
+    const productos = new Map<string, { descripcion: string | null; unidad: string | null; moneda: string | null; pactado: number; pendiente: number }>();
     lineasOc.forEach((linea) => {
-      const codigoProducto = normalizarCodigo(linea.producto_codigo);
-      const anterior = productos.get(codigoProducto);
-      productos.set(codigoProducto, {
-        codigo: codigoProducto,
+      const codigo = normalizarCodigo(linea.producto_codigo);
+      const anterior = productos.get(codigo);
+      productos.set(codigo, {
         descripcion: anterior?.descripcion ?? linea.descripcion_producto,
         unidad: anterior?.unidad ?? linea.unidad_medida,
+        moneda: anterior?.moneda ?? linea.moneda,
+        pactado: (anterior?.pactado ?? 0) + numero(linea.cantidad_ordenada),
         pendiente: (anterior?.pendiente ?? 0) + numero(linea.cantidad_pendiente),
-        precio: anterior?.precio ?? (linea.precio_unitario === null ? null : numero(linea.precio_unitario)),
       });
     });
     return productos;
   }, [lineasOc]);
 
-  const recibidoPorProducto = useMemo(() => {
-    const recibidos = new Map<string, number>();
-    lineasRemito.forEach((linea) => {
-      const codigoProducto = normalizarCodigo(linea.producto_codigo);
-      recibidos.set(codigoProducto, (recibidos.get(codigoProducto) ?? 0) + numero(linea.cantidad));
-    });
-    return recibidos;
-  }, [lineasRemito]);
-
-  const resumen = useMemo(() => {
-    let coincide = 0;
-    let revisar = 0;
-    let parcial = 0;
-    productosOc.forEach((producto) => {
-      const recibido = recibidoPorProducto.get(producto.codigo) ?? 0;
-      if (recibido > producto.pendiente) revisar += 1;
-      else if (recibido > 0 && recibido < producto.pendiente) parcial += 1;
-      else if (recibido === producto.pendiente && recibido > 0) coincide += 1;
-    });
-    lineasRemito.forEach((linea) => {
-      if (!productosOc.has(normalizarCodigo(linea.producto_codigo))) revisar += 1;
-    });
-    return { coincide, revisar, parcial };
-  }, [lineasRemito, productosOc, recibidoPorProducto]);
-
-  const completarProducto = (valor: string) => {
-    setCodigo(valor);
-    const producto = productosOc.get(normalizarCodigo(valor));
-    if (producto) {
-      setDescripcion(producto.descripcion ?? "");
-      setPrecio(producto.precio === null ? "" : String(producto.precio));
-    }
+  const abrirNuevo = () => {
+    setErrorEdicion("");
+    setEdicion({ clave: "", codigo: "", descripcion: "", cantidad: "" });
   };
 
-  const analizarArchivo = async () => {
-    if (modoDemo || !turno.rutaRemito) {
-      setError("Este turno no tiene un archivo de remito para leer.");
+  const abrirEdicion = (linea: LineaControl) => {
+    setErrorEdicion("");
+    setEdicion({ clave: linea.clave, codigo: linea.codigo, descripcion: linea.descripcion, cantidad: linea.cantidad });
+  };
+
+  const completarCodigo = (valor: string) => {
+    setEdicion((actual) => actual ? { ...actual, codigo: valor } : null);
+  };
+
+  const aplicarEdicion = (evento: FormEvent<HTMLFormElement>) => {
+    evento.preventDefault();
+    if (!edicion) return;
+    const codigo = normalizarCodigo(edicion.codigo);
+    const cantidad = numero(edicion.cantidad);
+    if (!codigo || !/^\d+(?:[.,]\d{1,4})?$/.test(edicion.cantidad.trim()) || !Number.isFinite(cantidad) || cantidad <= 0) {
+      setErrorEdicion("Indicá un producto y una cantidad mayor que cero (hasta cuatro decimales).");
       return;
     }
+    const descripcion = edicion.descripcion.trim() || productosOc.get(codigo)?.descripcion || "";
+    if (!descripcion) { setErrorEdicion("Completá la descripción del remito."); return; }
+    if (edicion.clave) {
+      setLineas((actuales) => actuales.map((linea) => linea.clave === edicion.clave
+        ? { ...linea, codigo, descripcion, cantidad: edicion.cantidad.trim().replace(",", "."), pendienteGuardar: true }
+        : linea));
+    } else {
+      setLineas((actuales) => [...actuales, {
+        clave: crypto.randomUUID(), id: null, renglon: null, codigo, descripcion,
+        cantidad: edicion.cantidad.trim().replace(",", "."), pendienteGuardar: true,
+      }]);
+    }
+    setEdicion(null);
+    setError("");
+  };
+
+  const leerArchivo = async () => {
+    if (!turno.rutaRemito || modoDemo) return;
     const supabase = obtenerSupabase();
     if (!supabase) return;
     setLeyendo(true);
     setError("");
-    setProgresoLectura("Abriendo el remito…");
+    setProgresoLectura("Leyendo el remito…");
     try {
       const { data, error: errorUrl } = await supabase.storage.from("remitos").createSignedUrl(turno.rutaRemito, 300);
       if (errorUrl || !data) throw new Error("No pudimos abrir el archivo del remito.");
       const respuesta = await fetch(data.signedUrl);
-      if (!respuesta.ok) throw new Error("No pudimos descargar el archivo del remito.");
-      const archivoDescargado = await respuesta.blob();
-      const archivo = new Blob([archivoDescargado], { type: turno.tipoRemito || archivoDescargado.type });
-      if (!archivo.type.includes("pdf") && !archivo.type.startsWith("image/")) throw new Error("Este tipo de archivo no se puede leer automáticamente.");
+      if (!respuesta.ok) throw new Error("No pudimos descargar el remito.");
+      const archivo = await respuesta.blob();
       const { leerRemito } = await import("@/lib/remito/reader");
-      const resultado = await leerRemito(archivo, setProgresoLectura);
-      setLectura(resultado);
-      setPropuestas(resultado.renglones.map((renglon, indice) => ({
-        id: indice,
-        codigo: sugerirCodigo(renglon.descripcion, [...productosOc.values()]),
-        cantidad: renglon.cantidad,
-        descripcion: renglon.descripcion,
+      const resultado = await leerRemito(new Blob([archivo], { type: turno.tipoRemito || archivo.type }), setProgresoLectura);
+      if (resultado.renglones.length === 0) throw new Error("No pudimos leer los productos. Abrí el PDF y agregalos con el botón +.");
+      setLineas(resultado.renglones.map((linea, indice) => ({
+        clave: `leida-${indice}`, id: null, renglon: null,
+        codigo: sugerirCodigo(linea.descripcion, [...productosOc.entries()].map(([codigo, producto]) => ({ codigo, descripcion: producto.descripcion }))),
+        descripcion: linea.descripcion, cantidad: linea.cantidad, pendienteGuardar: true,
       })));
-      if (resultado.renglones.length === 0) setError("No pudimos distinguir renglones en el archivo. Podés registrarlos manualmente mirando el remito.");
     } catch (causa) {
-      setError(causa instanceof Error ? causa.message : "Falló la lectura del remito. Podés cargar los renglones manualmente.");
+      setError(causa instanceof Error ? causa.message : "No pudimos leer el remito.");
     } finally {
       setLeyendo(false);
       setProgresoLectura("");
     }
   };
 
-  const actualizarPropuesta = (id: number, campo: "codigo" | "cantidad" | "descripcion", valor: string) => {
-    setPropuestas((actuales) => actuales.map((propuesta) => propuesta.id === id ? { ...propuesta, [campo]: valor } : propuesta));
-  };
-
-  const registrarPropuesta = async (propuesta: PropuestaRemito) => {
-    const codigoLimpio = normalizarCodigo(propuesta.codigo);
-    const cantidadNumerica = numero(propuesta.cantidad);
-    if (!codigoLimpio || !/^\d+(?:[.,]\d{1,4})?$/.test(propuesta.cantidad.trim()) || cantidadNumerica <= 0) {
-      setError("Revisá el código y la cantidad del renglón. Se admiten hasta cuatro decimales.");
-      return;
-    }
-    if (!propuesta.descripcion.trim()) {
-      setError("Completá la descripción que figura en el remito.");
-      return;
-    }
-    if (!remitoId) {
-      setError("Todavía estamos cargando el remito. Intentá nuevamente en unos segundos.");
-      return;
-    }
-    const productoOc = productosOc.get(codigoLimpio);
-    const nuevaLinea = {
-      remito_id: remitoId,
-      renglon: Math.max(0, ...lineasRemito.map((linea) => linea.renglon)) + 1,
-      producto_codigo: codigoLimpio,
-      descripcion_producto: propuesta.descripcion.trim(),
-      unidad_medida: productoOc?.unidad ?? null,
-      moneda: lineasOc.find((linea) => normalizarCodigo(linea.producto_codigo) === codigoLimpio)?.moneda ?? null,
-      cantidad: cantidadNumerica,
-      precio_unitario: null,
-    };
-    const supabase = obtenerSupabase();
-    if (!supabase) return;
-    setGuardandoPropuesta(propuesta.id);
-    setError("");
-    const { data, error: errorGuardar } = await supabase.from("lineas_remito")
-      .insert(nuevaLinea)
-      .select("id,renglon,producto_codigo,descripcion_producto,unidad_medida,moneda,cantidad,precio_unitario")
-      .single();
-    setGuardandoPropuesta(null);
-    if (errorGuardar || !data) {
-      setError("No pudimos guardar este renglón. Revisá los datos e intentá de nuevo.");
-      return;
-    }
-    setLineasRemito((actuales) => [...actuales, data as LineaRemito]);
-    setPropuestas((actuales) => actuales.filter((item) => item.id !== propuesta.id));
-    informar("Renglón del remito registrado. La OC no fue modificada.");
-  };
-
-  const guardarLinea = async (evento: FormEvent<HTMLFormElement>) => {
-    evento.preventDefault();
-    const codigoLimpio = normalizarCodigo(codigo);
-    const cantidadNumerica = numero(cantidad);
-    const precioNumerico = precio.trim() ? numero(precio) : null;
-    const precioValido = !precio.trim() || (Number.isFinite(Number(precio.trim().replace(",", "."))) && (precioNumerico ?? 0) >= 0);
-    if (!codigoLimpio || cantidadNumerica <= 0) {
-      setError("Indicá el código del producto y una cantidad mayor que cero.");
-      return;
-    }
-    if (!precioValido) {
-      setError("El precio debe ser un número válido si querés registrarlo.");
-      return;
-    }
-
-    const productoOc = productosOc.get(codigoLimpio);
-    const nuevaLinea: LineaRemito = {
-      id: `temporal-${Date.now()}`,
-      renglon: Math.max(0, ...lineasRemito.map((linea) => linea.renglon)) + 1,
-      producto_codigo: codigoLimpio,
-      descripcion_producto: descripcion.trim() || productoOc?.descripcion || null,
-      unidad_medida: productoOc?.unidad ?? null,
-      moneda: productoOc?.precio === null ? null : lineasOc.find((linea) => normalizarCodigo(linea.producto_codigo) === codigoLimpio)?.moneda ?? null,
-      cantidad: cantidadNumerica,
-      precio_unitario: precioNumerico,
-    };
-
-    if (modoDemo) {
-      setLineasRemito((actuales) => [...actuales, nuevaLinea]);
-      setCantidad("");
-      setError("");
-      informar("Renglón agregado a la prueba. En el panel real se guarda en el remito.");
-      return;
-    }
-    if (!remitoId) {
-      setError("Todavía estamos cargando el remito. Intentá nuevamente en unos segundos.");
-      return;
-    }
-    const supabase = obtenerSupabase();
-    if (!supabase) return;
+  const guardarControl = async () => {
+    const pendientes = lineas.filter((linea) => linea.pendienteGuardar);
+    if (!pendientes.length) return;
+    const sinCodigo = pendientes.find((linea) => !normalizarCodigo(linea.codigo) || !Number.isFinite(numero(linea.cantidad)) || numero(linea.cantidad) <= 0);
+    if (sinCodigo) { setError("Revisá con el lápiz los renglones que no tienen producto o cantidad válida."); return; }
+    if (!modoDemo && !remitoId) { setError("Todavía estamos cargando el remito."); return; }
     setGuardando(true);
     setError("");
-    const { data, error: errorGuardar } = await supabase
-      .from("lineas_remito")
-      .insert({
-        remito_id: remitoId,
-        renglon: nuevaLinea.renglon,
-        producto_codigo: nuevaLinea.producto_codigo,
-        descripcion_producto: nuevaLinea.descripcion_producto,
-        unidad_medida: nuevaLinea.unidad_medida,
-        moneda: nuevaLinea.moneda,
-        cantidad: nuevaLinea.cantidad,
-        precio_unitario: nuevaLinea.precio_unitario,
-      })
-      .select("id,renglon,producto_codigo,descripcion_producto,unidad_medida,moneda,cantidad,precio_unitario")
-      .single();
-    setGuardando(false);
-    if (errorGuardar || !data) {
-      setError("No pudimos guardar ese renglón del remito. Revisá los datos e intentá otra vez.");
-      return;
+    let siguienteRenglon = Math.max(0, ...lineas.map((linea) => linea.renglon ?? 0));
+    try {
+      for (const linea of pendientes) {
+        const producto = productosOc.get(normalizarCodigo(linea.codigo));
+        if (modoDemo) {
+          setLineas((actuales) => actuales.map((item) => item.clave === linea.clave ? { ...item, pendienteGuardar: false } : item));
+          continue;
+        }
+        const supabase = obtenerSupabase();
+        if (!supabase) throw new Error("No pudimos conectar con el panel.");
+        const valores = {
+          producto_codigo: normalizarCodigo(linea.codigo), descripcion_producto: linea.descripcion,
+          unidad_medida: producto?.unidad ?? null, moneda: producto?.moneda ?? null,
+          cantidad: numero(linea.cantidad),
+        };
+        const consulta = linea.id
+          ? supabase.from("lineas_remito").update(valores).eq("id", linea.id)
+          : supabase.from("lineas_remito").insert({ ...valores, remito_id: remitoId, renglon: ++siguienteRenglon });
+        const { data, error: errorGuardar } = await consulta.select(CAMPOS_LINEA).single();
+        if (errorGuardar || !data) throw new Error("No pudimos guardar un renglón. Los anteriores sí quedaron registrados; intentá otra vez.");
+        const guardada = data as LineaGuardada;
+        setLineas((actuales) => actuales.map((item) => item.clave === linea.clave ? {
+          ...item, id: guardada.id, renglon: guardada.renglon, pendienteGuardar: false,
+        } : item));
+      }
+      informar(modoDemo ? "Control guardado en la vista de prueba." : "Recepción registrada. La OC no fue modificada.");
+    } catch (causa) {
+      setError(causa instanceof Error ? causa.message : "No pudimos guardar el control.");
+    } finally {
+      setGuardando(false);
     }
-    setLineasRemito((actuales) => [...actuales, data as LineaRemito]);
-    setCantidad("");
-    setError("");
-    informar("Renglón del remito registrado. La OC no fue modificada.");
   };
 
   return (
@@ -355,100 +251,53 @@ export function DetalleRecepcion({
         <button className="text-button" type="button" onClick={cerrar}>Cerrar control</button>
       </div>
 
-      <p className="detail-note">Este control registra lo que llegó, pero no cierra ni modifica la OC automáticamente. El precio queda solo como referencia.</p>
       {error && <p className="form-alert error" role="alert">{error}</p>}
-      {cargando && <p className="form-alert info" role="status">Cargando el detalle de la OC y del remito…</p>}
-
-      {!cargando && lineasOc.length === 0 && (
-        <p className="form-alert warning">Todavía no hay productos de esta OC. Ejecutá y confirmá una actualización de Summa con los dos Excel para habilitar la comparación.</p>
-      )}
-
-      {!cargando && lineasOc.length > 0 && (
-        <>
-          <section className="remito-reading" aria-labelledby="lectura-remito-titulo">
-            <div className="remito-reading-heading">
-              <div>
-                <h3 id="lectura-remito-titulo">Leer remito automáticamente</h3>
-                <p>La lectura propone datos del archivo. Revisá cada renglón contra el PDF antes de registrarlo; los escaneos pueden confundir números.</p>
+      {cargando && <p className="form-alert info" role="status">Cargando remito…</p>}
+      {!cargando && <>
+        <div className="control-list-heading">
+          <h3>Productos del remito</h3>
+          <button className="control-add-button" type="button" onClick={abrirNuevo} aria-label="Agregar renglón" title="Agregar renglón"><span aria-hidden="true">+</span> Agregar</button>
+        </div>
+        {lineas.length ? <div className="control-list">
+          {lineas.map((linea) => {
+            const producto = productosOc.get(normalizarCodigo(linea.codigo));
+            return <article className="control-line" key={linea.clave}>
+              <div className="control-line-main">
+                <div>
+                  <strong>{linea.descripcion || producto?.descripcion || "Producto del remito"}</strong>
+                  <span>{linea.codigo || "Producto sin asociar"}</span>
+                </div>
+                <b>{formatoNumero(numero(linea.cantidad))} {producto?.unidad ?? ""}</b>
               </div>
-              <button className="secondary-button" type="button" disabled={leyendo || guardandoPropuesta !== null || modoDemo || !turno.rutaRemito} onClick={analizarArchivo}>
-                {leyendo ? "Leyendo…" : lectura ? "Volver a leer" : "Analizar remito"}
-              </button>
-            </div>
-            {modoDemo && <p className="remito-reading-hint">La lectura está disponible en turnos reales con un archivo adjunto.</p>}
-            {leyendo && <p className="form-alert info" role="status">{progresoLectura}</p>}
-            {lectura && !leyendo && <>
-              <p className="remito-reading-hint">{lectura.metodo === "ocr" ? "Lectura de imagen (OCR)" : "Texto del PDF"} · {lectura.paginas} página{lectura.paginas === 1 ? "" : "s"} revisada{lectura.paginas === 1 ? "" : "s"}. {lectura.incompleto ? "El archivo tiene más páginas; revisá las restantes manualmente." : ""}</p>
-              <p className={lectura.numero && normalizarNumeroRemito(lectura.numero) !== normalizarNumeroRemito(turno.remito) ? "form-alert warning" : "remito-reading-hint"}>
-                Número leído: <b>{lectura.numero ?? "no reconocido"}</b> · Número del turno: <b>{turno.remito}</b>
-                {lectura.numero && normalizarNumeroRemito(lectura.numero) !== normalizarNumeroRemito(turno.remito) ? ". Verificá que sea el remito correcto antes de registrar datos." : ""}
-              </p>
-              {propuestas.length > 0 && <div className="remito-proposals">
-                {propuestas.map((propuesta) => <div className="remito-proposal" key={propuesta.id}>
-                  <p><b>Renglón leído {propuesta.id + 1}</b>{propuesta.codigo ? " · Código sugerido; confirmalo" : " · Seleccioná el producto de la OC"}</p>
-                  <div className="remito-proposal-fields">
-                    <label className="field"><span>Código de producto</span><input list="productos-oc" value={propuesta.codigo} onChange={(e) => actualizarPropuesta(propuesta.id, "codigo", e.target.value)} placeholder="Elegí un producto de la OC" /></label>
-                    <label className="field"><span>Cantidad</span><input inputMode="decimal" value={propuesta.cantidad} onChange={(e) => actualizarPropuesta(propuesta.id, "cantidad", e.target.value)} /></label>
-                    <label className="field remito-proposal-description"><span>Descripción del remito</span><input value={propuesta.descripcion} onChange={(e) => actualizarPropuesta(propuesta.id, "descripcion", e.target.value)} /></label>
-                    <button className="secondary-button" type="button" disabled={guardandoPropuesta !== null} onClick={() => void registrarPropuesta(propuesta)}>{guardandoPropuesta === propuesta.id ? "Guardando…" : "Confirmar renglón"}</button>
-                  </div>
-                  {propuesta.codigo && !productosOc.has(normalizarCodigo(propuesta.codigo)) && <small className="remito-proposal-warning">Este código no figura en la OC y quedará marcado para revisar.</small>}
-                  {propuesta.codigo && productosOc.has(normalizarCodigo(propuesta.codigo)) && numero(propuesta.cantidad) > (productosOc.get(normalizarCodigo(propuesta.codigo))?.pendiente ?? 0) && <small className="remito-proposal-warning">La cantidad propuesta supera lo pendiente en la OC. Revisá el archivo y corregí la cifra si el OCR la leyó mal.</small>}
-                  {lineasRemito.some((linea) => normalizarCodigo(linea.producto_codigo) === normalizarCodigo(propuesta.codigo) && numero(linea.cantidad) === numero(propuesta.cantidad) && linea.descripcion_producto?.trim().toUpperCase() === propuesta.descripcion.trim().toUpperCase()) && <small className="remito-proposal-warning">Ya hay un renglón igual registrado. Comprobá que no lo estés cargando de nuevo.</small>}
-                </div>)}
-              </div>}
-              <details className="remito-extracted-text"><summary>Ver texto leído</summary><pre>{lectura.texto || "Sin texto reconocido"}</pre></details>
-            </>}
-          </section>
+              <div className="control-line-bottom">
+                <small className={!producto ? "control-oc-warning" : ""}>{producto
+                  ? `OC: ${formatoNumero(producto.pactado)} ${producto.unidad ?? ""} pactados · ${formatoNumero(producto.pendiente)} pendientes`
+                  : "Este producto no se pudo asociar con la OC"}</small>
+                <button className="control-edit-button" type="button" onClick={() => abrirEdicion(linea)} aria-label={`Editar ${linea.descripcion || linea.codigo || "renglón"}`} title="Editar renglón">
+                  <svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="m4 16.5-.5 4 4-.5L19 8.5 15.5 5 4 16.5Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/><path d="m13.5 7 3.5 3.5" stroke="currentColor" strokeWidth="1.8"/></svg>
+                </button>
+              </div>
+            </article>;
+          })}
+        </div> : <div className="control-empty"><p>No hay productos registrados para este remito.</p>{!modoDemo && turno.rutaRemito && <button className="text-button" type="button" disabled={leyendo} onClick={() => void leerArchivo()}>{leyendo ? "Leyendo…" : "Leer archivo"}</button>}</div>}
+        {leyendo && <p className="control-hint" role="status">{progresoLectura}</p>}
+        {lineas.some((linea) => linea.pendienteGuardar) && <div className="control-save"><span>Revisá lo recibido antes de guardar. La OC no se modifica.</span><button className="secondary-button" type="button" disabled={guardando} onClick={() => void guardarControl()}>{guardando ? "Guardando…" : "Guardar control"}</button></div>}
+      </>}
 
-          <div className="detail-summary" aria-label="Resumen del control">
-            <span><b>{resumen.coincide}</b> coincide</span>
-            <span><b>{resumen.parcial}</b> entrega parcial</span>
-            <span className={resumen.revisar ? "needs-review" : ""}><b>{resumen.revisar}</b> a revisar</span>
-          </div>
-
-          <div className="detail-table-wrap">
-            <table className="detail-table">
-              <thead><tr><th>Producto</th><th>Pendiente OC</th><th>Recibido</th><th>Saldo</th><th>Estado</th></tr></thead>
-              <tbody>
-                {[...productosOc.values()].map((producto) => {
-                  const recibido = recibidoPorProducto.get(producto.codigo) ?? 0;
-                  const saldo = producto.pendiente - recibido;
-                  const excede = recibido > producto.pendiente;
-                  const parcial = recibido > 0 && recibido < producto.pendiente;
-                  const coincide = recibido === producto.pendiente && recibido > 0;
-                  return <tr key={producto.codigo}>
-                    <td><b>{producto.codigo}</b><small>{producto.descripcion ?? "Sin descripción"}</small><small>Referencia: {formatoPrecio(producto.precio, lineasOc.find((linea) => normalizarCodigo(linea.producto_codigo) === producto.codigo)?.moneda ?? null)}</small></td>
-                    <td>{formatoNumero(producto.pendiente)} {producto.unidad ?? ""}</td>
-                    <td>{formatoNumero(recibido)} {producto.unidad ?? ""}</td>
-                    <td>{formatoNumero(Math.abs(saldo))} {saldo < 0 ? "de más" : producto.unidad ?? ""}</td>
-                    <td><span className={`detail-status ${excede ? "review" : coincide ? "match" : parcial ? "partial" : "pending"}`}>{excede ? "Supera pendiente" : coincide ? "Coincide" : parcial ? "Entrega parcial" : "Sin registrar"}</span></td>
-                  </tr>;
-                })}
-                {lineasRemito.filter((linea) => !productosOc.has(normalizarCodigo(linea.producto_codigo))).map((linea) => (
-                  <tr key={linea.id} className="unlisted-product"><td><b>{linea.producto_codigo}</b><small>{linea.descripcion_producto ?? "Producto no informado en OC"}</small></td><td>—</td><td>{formatoNumero(numero(linea.cantidad))} {linea.unidad_medida ?? ""}</td><td>—</td><td><span className="detail-status review">No figura en OC</span></td></tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          <form className="detail-form" onSubmit={guardarLinea}>
-            <div>
-              <h3>Registrar un renglón del remito</h3>
-              <p>Seleccioná el código de la OC y registrá la cantidad que figura en el remito. La comparación se actualiza al guardarlo.</p>
+      {edicion && <div className="control-modal-backdrop" role="presentation" onMouseDown={() => setEdicion(null)}>
+        <section className="control-modal" role="dialog" aria-modal="true" aria-labelledby="control-modal-titulo" onMouseDown={(evento) => evento.stopPropagation()}>
+          <div className="control-modal-heading"><h3 id="control-modal-titulo">{edicion.clave ? "Editar renglón" : "Agregar renglón"}</h3><button className="control-close-button" type="button" onClick={() => setEdicion(null)} aria-label="Cerrar">×</button></div>
+          <form onSubmit={aplicarEdicion}>
+            <div className="control-modal-fields">
+              <label className="field"><span>Producto de la OC</span><input list="productos-oc-control" required value={edicion.codigo} onChange={(e) => completarCodigo(e.target.value)} placeholder="Código del producto" /><datalist id="productos-oc-control">{[...productosOc.entries()].map(([codigo, producto]) => <option key={codigo} value={codigo}>{producto.descripcion ?? codigo}</option>)}</datalist></label>
+              <label className="field"><span>Cantidad del remito</span><input required inputMode="decimal" value={edicion.cantidad} onChange={(e) => setEdicion((actual) => actual && { ...actual, cantidad: e.target.value })} placeholder="0" /></label>
+              <label className="field control-modal-wide"><span>Descripción del remito</span><input required value={edicion.descripcion} onChange={(e) => setEdicion((actual) => actual && { ...actual, descripcion: e.target.value })} placeholder="Lo que figura en el remito" /></label>
             </div>
-            <div className="detail-form-fields">
-              <label className="field"><span>Código de producto</span><input list="productos-oc" required value={codigo} onChange={(e) => completarProducto(e.target.value)} placeholder="Ej.: PAP-A4-80" /><datalist id="productos-oc">{[...productosOc.values()].map((producto) => <option key={producto.codigo} value={producto.codigo}>{producto.descripcion ?? producto.codigo}</option>)}</datalist></label>
-              <label className="field"><span>Cantidad recibida</span><input required inputMode="decimal" value={cantidad} onChange={(e) => setCantidad(e.target.value)} placeholder="0" /></label>
-              <label className="field"><span>Precio unitario <em>opcional</em></span><input inputMode="decimal" value={precio} onChange={(e) => setPrecio(e.target.value)} placeholder="Solo referencia" /></label>
-              <label className="field detail-description"><span>Descripción <em>opcional</em></span><input value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Solo si el código no figura en la OC" /></label>
-              <button className="secondary-button" type="submit" disabled={guardando}>{guardando ? "Guardando…" : "Registrar renglón"}</button>
-            </div>
+            {errorEdicion && <p className="form-alert error" role="alert">{errorEdicion}</p>}
+            <div className="control-modal-actions"><button className="text-button" type="button" onClick={() => setEdicion(null)}>Cancelar</button><button className="secondary-button" type="submit">{edicion.clave ? "Aplicar cambios" : "Agregar renglón"}</button></div>
           </form>
-
-          {lineasRemito.length > 0 && <p className="detail-recorded">{lineasRemito.length} renglón{lineasRemito.length === 1 ? "" : "es"} registrado{lineasRemito.length === 1 ? "" : "s"} en este remito.</p>}
-        </>
-      )}
+        </section>
+      </div>}
     </section>
   );
 }
