@@ -194,42 +194,16 @@ td small { margin-top: 0.1rem; color: var(--ink-soft); font-size: 0.77rem; }
 .remito-review-detail { max-height: 9rem; overflow: auto; padding: 0.8rem 1.25rem; border-top: 1px solid var(--line); color: var(--ink-soft); font-size: 0.8rem; }
 .remito-review-detail p { margin: 0.3rem 0; }
 .remito-review-detail ul { margin: 0.3rem 0; padding-left: 1.2rem; }
-.detail-card { margin-top: 1.55rem; padding: 1.2rem; background: #f7fbfa; border: 1px solid #b6d7d0; border-radius: 0.78rem; }
-.detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
-.detail-heading h2 { margin: 0.05rem 0 0.25rem; font-size: 1.3rem; }
-.detail-heading p:not(.eyebrow) { margin: 0; color: var(--ink-soft); font-size: 0.88rem; }
 .booking-remito-status { margin: 0.9rem 0; }
-.control-list-heading { display: flex; align-items: center; justify-content: space-between; gap: 0.7rem; margin: 1.25rem 0 0.65rem; }
-.control-list-heading h3 { margin: 0; font-size: 1rem; }
-.control-add-button { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.38rem 0.6rem; color: var(--teal-dark); background: white; border: 1px solid #b6d7d0; border-radius: 0.55rem; font-size: 0.78rem; font-weight: 750; }
-.control-add-button span { font-size: 1.2rem; line-height: 0.8; }
-.control-add-button:hover, .control-edit-button:hover { background: #e9f5f2; }
-.control-list { display: grid; gap: 0.55rem; }
-.control-line { padding: 0.78rem 0.9rem; background: white; border: 1px solid var(--line); border-radius: 0.65rem; }
-.control-line-main, .control-line-bottom { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem 1rem; }
-.control-line-main > div { display: grid; gap: 0.12rem; min-width: 0; }
-.control-line-main strong { font-size: 0.92rem; font-weight: 760; }
-.control-line-main span { color: var(--ink-soft); font-size: 0.75rem; }
-.control-line-main b { flex: 0 0 auto; color: var(--ink); font-size: 1.05rem; font-variant-numeric: tabular-nums; }
-.control-line-bottom { margin-top: 0.5rem; padding-top: 0.45rem; border-top: 1px solid #edf1f0; }
-.control-line-bottom small { color: var(--ink-soft); font-size: 0.75rem; }
-.control-line-bottom .control-oc-warning { color: var(--danger); }
-.control-edit-button { display: grid; flex: 0 0 auto; width: 1.8rem; height: 1.8rem; place-items: center; color: var(--teal-dark); background: transparent; border: 1px solid transparent; border-radius: 0.4rem; }
-.control-edit-button svg { width: 1rem; height: 1rem; }
-.control-empty { display: flex; align-items: center; justify-content: space-between; gap: 0.7rem; padding: 1rem; color: var(--ink-soft); background: white; border: 1px dashed var(--line); border-radius: 0.65rem; font-size: 0.84rem; }
-.control-empty p { margin: 0; }
-.control-hint { margin: 0.65rem 0 0; color: var(--ink-soft); font-size: 0.8rem; }
-.control-save { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; margin-top: 0.9rem; color: var(--ink-soft); font-size: 0.78rem; }
-.control-save .secondary-button { min-height: 2.45rem; margin: 0; white-space: nowrap; }
-.control-modal-backdrop { position: fixed; z-index: 30; inset: 0; display: grid; place-items: center; padding: 1rem; background: rgba(20, 36, 53, 0.42); }
-.control-modal { width: min(100%, 29rem); max-height: min(90vh, 42rem); overflow-y: auto; padding: 1.1rem; background: #f9fcfc; border: 1px solid white; border-radius: 0.9rem; box-shadow: 0 1.5rem 4rem rgba(20, 36, 53, 0.27); }
-.control-modal-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 0.95rem; }
-.control-modal-heading h3 { margin: 0; font-size: 1.1rem; }
-.control-close-button { width: 1.8rem; height: 1.8rem; color: var(--ink-soft); background: transparent; border: 0; font-size: 1.4rem; line-height: 1; }
-.control-modal-fields { display: grid; grid-template-columns: 1.5fr 0.8fr; gap: 0.8rem; }
-.control-modal-wide { grid-column: 1 / -1; }
-.control-modal-actions { display: flex; align-items: center; justify-content: flex-end; gap: 1rem; margin-top: 1rem; }
-.control-modal-actions .secondary-button { min-height: 2.45rem; margin: 0; }
+.agenda-control-row td { padding: 0.35rem 0.75rem 0.9rem; border-top: 0; }
+.agenda-control-detail { padding: 0.7rem 0.9rem; background: #f5faf9; border: 1px solid #cbded9; border-radius: 0.6rem; }
+.agenda-control-detail p { margin: 0 0 0.4rem; color: var(--ink-soft); font-size: 0.77rem; font-weight: 750; }
+.agenda-control-detail ul { margin: 0; padding: 0; list-style: none; }
+.agenda-control-detail li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.35rem 0; color: var(--ink); font-size: 0.83rem; }
+.agenda-control-detail li + li { border-top: 1px solid #e1ebe8; }
+.agenda-control-detail li span { display: inline; }
+.agenda-control-detail li b { flex: 0 0 auto; font-variant-numeric: tabular-nums; }
+.agenda-control-empty { color: var(--ink-soft); font-size: 0.82rem; }
 .access-card { max-width: 29rem; margin: min(11vw, 6rem) auto 0; padding: clamp(1.4rem, 4vw, 2.35rem); }
 .access-card h1 { max-width: none; font-size: 2.45rem; }
 .access-card > p:not(.eyebrow) { color: var(--ink-soft); }
@@ -264,12 +238,6 @@ td small { margin-top: 0.1rem; color: var(--ink-soft); font-size: 0.77rem; }
   .selected-date { width: 100%; margin: -0.35rem 0 0.15rem; }
   .block-form { grid-template-columns: 5.1rem 1fr; min-width: 100%; }
   .block-form .secondary-button { grid-column: 1 / -1; }
-  .detail-heading { align-items: flex-start; flex-direction: column; }
-  .control-line-main { align-items: flex-start; }
-  .control-line-main b { text-align: right; }
-  .control-save, .control-empty { align-items: flex-start; flex-direction: column; }
-  .control-modal-fields { grid-template-columns: 1fr; }
-  .control-modal-wide { grid-column: auto; }
   .remito-modal-heading, .remito-modal-actions { align-items: flex-start; flex-direction: column; }
   .remito-preview { min-height: 50vh; }
 }

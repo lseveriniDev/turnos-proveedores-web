@@ -1,13 +1,18 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react";
 
 import { CsvImporter } from "@/components/CsvImporter";
-import { DetalleRecepcion } from "@/components/DetalleRecepcion";
 import { DEMO_AGENDA, EstadoTurno, FRANJAS, TurnoAgenda, fechaArgentina, textoFecha } from "@/lib/domain";
 import { obtenerSupabase, supabaseConfigurado } from "@/lib/supabase/client";
 
 type Modo = "acceso" | "demo" | "panel";
+type LineaControl = { descripcion: string; cantidad: number; codigo?: string };
+type ControlAbierto = { turnoId: string; lineas: LineaControl[]; cargando: boolean; error: string };
+
+function formatoCantidad(valor: number) {
+  return new Intl.NumberFormat("es-AR", { maximumFractionDigits: 4 }).format(valor);
+}
 
 const etiquetaEstado: Record<EstadoTurno, string> = {
   reservado: "Reservado",
@@ -69,7 +74,8 @@ export function AdminPanel() {
   const [error, setError] = useState("");
   const [horaBloqueo, setHoraBloqueo] = useState("08:00");
   const [motivoBloqueo, setMotivoBloqueo] = useState("");
-  const [turnoEnControl, setTurnoEnControl] = useState<TurnoAgenda | null>(null);
+  const [controlAbierto, setControlAbierto] = useState<ControlAbierto | null>(null);
+  const solicitudControl = useRef(0);
   const [vistaRemito, setVistaRemito] = useState<{ turno: TurnoAgenda; url: string } | null>(null);
   const [abriendoRemitoId, setAbriendoRemitoId] = useState<string | null>(null);
 
@@ -170,6 +176,47 @@ export function AdminPanel() {
     setVistaRemito({ turno, url: data.signedUrl });
   };
 
+  const alternarControl = async (turno: TurnoAgenda) => {
+    const solicitud = ++solicitudControl.current;
+    if (controlAbierto?.turnoId === turno.id) {
+      setControlAbierto(null);
+      return;
+    }
+    const detectadas = (turno.lineasDeclaradas ?? []).map((linea) => ({
+      descripcion: linea.descripcion,
+      cantidad: Number(linea.cantidad),
+    }));
+    if (detectadas.length || modo === "demo") {
+      setControlAbierto({ turnoId: turno.id, lineas: detectadas, cargando: false, error: "" });
+      return;
+    }
+    setControlAbierto({ turnoId: turno.id, lineas: [], cargando: true, error: "" });
+    const supabase = obtenerSupabase();
+    if (!supabase) {
+      setControlAbierto({ turnoId: turno.id, lineas: [], cargando: false, error: "No pudimos cargar los productos del remito." });
+      return;
+    }
+    const { data: remito, error: errorRemito } = await supabase.from("remitos").select("id").eq("turno_id", turno.id).maybeSingle();
+    if (solicitud !== solicitudControl.current) return;
+    if (errorRemito || !remito) {
+      setControlAbierto({ turnoId: turno.id, lineas: [], cargando: false, error: "No pudimos cargar los productos del remito." });
+      return;
+    }
+    const { data, error: errorLineas } = await supabase.from("lineas_remito")
+      .select("descripcion_producto,producto_codigo,cantidad").eq("remito_id", remito.id).order("renglon");
+    if (solicitud !== solicitudControl.current) return;
+    setControlAbierto({
+      turnoId: turno.id,
+      lineas: (data ?? []).map((linea) => ({
+        descripcion: linea.descripcion_producto || linea.producto_codigo,
+        cantidad: Number(linea.cantidad),
+        codigo: linea.producto_codigo,
+      })),
+      cargando: false,
+      error: errorLineas ? "No pudimos cargar los productos del remito." : "",
+    });
+  };
+
   const bloquear = async (evento: FormEvent<HTMLFormElement>) => {
     evento.preventDefault();
     if (!motivoBloqueo.trim()) {
@@ -230,7 +277,7 @@ export function AdminPanel() {
       <div className="agenda-toolbar">
         <label className="field">
           <span>Día</span>
-          <input type="date" min={fechaArgentina()} value={fecha} onChange={(e) => setFecha(e.target.value)} />
+          <input type="date" min={fechaArgentina()} value={fecha} onChange={(e) => { solicitudControl.current += 1; setControlAbierto(null); setFecha(e.target.value); }} />
         </label>
         <p className="selected-date">{textoFecha(fecha)}</p>
         <form className="block-form" onSubmit={bloquear}>
@@ -252,20 +299,33 @@ export function AdminPanel() {
                 return <tr key={hora} className="free-slot"><td>{hora}</td><td colSpan={5}>Disponible</td></tr>;
               }
               return (
-                <tr key={turno.id}>
+                <Fragment key={turno.id}>
+                <tr>
                   <td className="mono">{turno.hora}</td>
                   <td><b>{turno.proveedor}</b><small>{turno.codigo}</small></td>
                   <td><span>{turno.ordenCompra}</span><small>{turno.remito}</small></td>
                   <td>{turno.patente}</td>
                   <td><span className={`status ${turno.estado}`}>{etiquetaEstado[turno.estado]}</span>{turno.estado === "retenido" && turno.motivoRevision && <small>{turno.motivoRevision}</small>}</td>
                   <td><div className="row-actions">
-                    <button className="text-button" type="button" onClick={() => setTurnoEnControl(turno)}>Control</button>
+                    <button className="text-button" type="button" aria-expanded={controlAbierto?.turnoId === turno.id} aria-controls={`control-${turno.id}`} onClick={() => void alternarControl(turno)}>{controlAbierto?.turnoId === turno.id ? "Ocultar" : "Control"}</button>
                     <button className="text-button" disabled={abriendoRemitoId === turno.id} type="button" onClick={() => void verRemito(turno)}>{abriendoRemitoId === turno.id ? "Abriendo…" : "Ver remito"}</button>
                     {turno.estado === "retenido" && <button className="text-button" type="button" onClick={() => void aprobarRetenido(turno)}>Aprobar</button>}
                     {turno.estado !== "en_planta" && turno.estado !== "retenido" && <button className="text-button" type="button" onClick={() => void cambiarEstado(turno.id, "en_planta")}>Llegó</button>}
                     <button className="text-button danger" type="button" onClick={() => void cambiarEstado(turno.id, "anulado")}>Anular</button>
                   </div></td>
                 </tr>
+                {controlAbierto?.turnoId === turno.id && <tr className="agenda-control-row" id={`control-${turno.id}`}>
+                  <td colSpan={6}>
+                    <div className="agenda-control-detail">
+                      <p>Productos del remito {turno.remito}</p>
+                      {controlAbierto.cargando ? <span className="agenda-control-empty">Cargando productos…</span>
+                        : controlAbierto.error ? <span className="agenda-control-empty" role="alert">{controlAbierto.error}</span>
+                          : controlAbierto.lineas.length ? <ul>{controlAbierto.lineas.map((linea, indice) => <li key={indice}><span>{linea.descripcion}</span><b>{formatoCantidad(linea.cantidad)}</b></li>)}</ul>
+                            : <span className="agenda-control-empty">No hay renglones reconocidos. Abrí el archivo desde «Ver remito» para consultar el original.</span>}
+                    </div>
+                  </td>
+                </tr>}
+                </Fragment>
               );
             })}
           </tbody>
@@ -305,7 +365,6 @@ export function AdminPanel() {
           </section>
         </div>
       )}
-      {turnoEnControl && <DetalleRecepcion key={turnoEnControl.id} turno={turnoEnControl} modoDemo={modo === "demo"} informar={informar} cerrar={() => setTurnoEnControl(null)} />}
       <CsvImporter modoDemo={modo === "demo"} informar={informar} />
       <p className="agenda-footnote">Los enlaces de remito son privados y vencen a los cinco minutos: solo los ve el equipo habilitado.</p>
     </section>
