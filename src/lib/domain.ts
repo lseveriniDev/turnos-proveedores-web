@@ -1,4 +1,4 @@
-export type EstadoTurno = "reservado" | "confirmado" | "en_planta" | "anulado";
+export type EstadoTurno = "reservado" | "retenido" | "confirmado" | "en_planta" | "anulado";
 
 export type TurnoAgenda = {
   id: string;
@@ -9,6 +9,8 @@ export type TurnoAgenda = {
   remito: string;
   rutaRemito?: string | null;
   tipoRemito?: string | null;
+  motivoRevision?: string | null;
+  lineasDeclaradas?: { renglonOc: number; cantidad: number; descripcion: string }[] | null;
   patente: string;
   estado: EstadoTurno;
 };

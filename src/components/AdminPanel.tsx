@@ -11,6 +11,7 @@ type Modo = "acceso" | "demo" | "panel";
 
 const etiquetaEstado: Record<EstadoTurno, string> = {
   reservado: "Reservado",
+  retenido: "Pendiente de revisión",
   confirmado: "Confirmado",
   en_planta: "En planta",
   anulado: "Anulado",
@@ -26,7 +27,7 @@ async function consultarAgenda(fecha: string) {
   const hasta = `${siguiente.getFullYear()}-${String(siguiente.getMonth() + 1).padStart(2, "0")}-${String(siguiente.getDate()).padStart(2, "0")}T00:00:00-03:00`;
   const { data, error } = await supabase
     .from("turnos")
-    .select("id,codigo,inicio,estado,patente,proveedores(razon_social),ordenes_compra(numero),remitos(numero,storage_path,mime_type)")
+    .select("id,codigo,inicio,estado,patente,proveedores(razon_social),ordenes_compra(numero),remitos(numero,storage_path,mime_type,motivo_revision,lineas_declaradas)")
     .gte("inicio", inicio)
     .lt("inicio", hasta)
     .order("inicio");
@@ -37,7 +38,7 @@ async function consultarAgenda(fecha: string) {
     const registro = fila as unknown as {
       id: string; codigo: string; inicio: string; estado: EstadoTurno; patente: string | null;
       proveedores: { razon_social: string } | null; ordenes_compra: { numero: string } | null;
-      remitos: { numero: string; storage_path: string | null; mime_type: string | null }[] | { numero: string; storage_path: string | null; mime_type: string | null } | null;
+      remitos: { numero: string; storage_path: string | null; mime_type: string | null; motivo_revision: string | null; lineas_declaradas: { renglonOc: number; cantidad: number; descripcion: string }[] | null }[] | { numero: string; storage_path: string | null; mime_type: string | null; motivo_revision: string | null; lineas_declaradas: { renglonOc: number; cantidad: number; descripcion: string }[] | null } | null;
     };
     const remito = Array.isArray(registro.remitos) ? registro.remitos[0] : registro.remitos;
     return {
@@ -49,6 +50,8 @@ async function consultarAgenda(fecha: string) {
       remito: remito?.numero ?? "—",
       rutaRemito: remito?.storage_path ?? null,
       tipoRemito: remito?.mime_type ?? null,
+      motivoRevision: remito?.motivo_revision ?? null,
+      lineasDeclaradas: remito?.lineas_declaradas ?? null,
       patente: registro.patente ?? "—",
       estado: registro.estado,
     } satisfies TurnoAgenda;
@@ -132,6 +135,21 @@ export function AdminPanel() {
       return;
     }
     setMensaje(estado === "anulado" ? "Turno anulado y horario liberado." : "Turno marcado como en planta.");
+    await cargarAgenda();
+  };
+
+  const aprobarRetenido = async (turno: TurnoAgenda) => {
+    if (!window.confirm(`¿Revisaste el archivo y las cantidades del remito ${turno.remito}? Al aprobarlo se enviará la confirmación al proveedor.`)) return;
+    const supabase = obtenerSupabase();
+    if (!supabase) return;
+    const { data, error: errorAprobacion } = await supabase.functions.invoke("crear-reserva", {
+      body: { accion: "aprobar", turno_id: turno.id },
+    });
+    if (errorAprobacion || !(data as { aprobado?: boolean } | null)?.aprobado) {
+      setError("No pudimos aprobar el turno. Revisá el remito y volvé a intentar.");
+      return;
+    }
+    setMensaje((data as { email_enviado?: boolean }).email_enviado ? "Turno aprobado y correo de confirmación enviado." : "Turno aprobado. El correo no pudo enviarse; informá al proveedor.");
     await cargarAgenda();
   };
 
@@ -239,11 +257,12 @@ export function AdminPanel() {
                   <td><b>{turno.proveedor}</b><small>{turno.codigo}</small></td>
                   <td><span>{turno.ordenCompra}</span><small>{turno.remito}</small></td>
                   <td>{turno.patente}</td>
-                  <td><span className={`status ${turno.estado}`}>{etiquetaEstado[turno.estado]}</span></td>
+                  <td><span className={`status ${turno.estado}`}>{etiquetaEstado[turno.estado]}</span>{turno.estado === "retenido" && turno.motivoRevision && <small>{turno.motivoRevision}</small>}</td>
                   <td><div className="row-actions">
                     <button className="text-button" type="button" onClick={() => setTurnoEnControl(turno)}>Control</button>
                     <button className="text-button" disabled={abriendoRemitoId === turno.id} type="button" onClick={() => void verRemito(turno)}>{abriendoRemitoId === turno.id ? "Abriendo…" : "Ver remito"}</button>
-                    {turno.estado !== "en_planta" && <button className="text-button" type="button" onClick={() => void cambiarEstado(turno.id, "en_planta")}>Llegó</button>}
+                    {turno.estado === "retenido" && <button className="text-button" type="button" onClick={() => void aprobarRetenido(turno)}>Aprobar</button>}
+                    {turno.estado !== "en_planta" && turno.estado !== "retenido" && <button className="text-button" type="button" onClick={() => void cambiarEstado(turno.id, "en_planta")}>Llegó</button>}
                     <button className="text-button danger" type="button" onClick={() => void cambiarEstado(turno.id, "anulado")}>Anular</button>
                   </div></td>
                 </tr>
@@ -273,6 +292,12 @@ export function AdminPanel() {
                 <div className="remito-preview-unsupported"><b>Este formato no admite vista previa en el navegador.</b><span>Podés abrir el archivo para verlo o descargarlo.</span></div>
               )}
             </div>
+            {vistaRemito.turno.estado === "retenido" && <div className="remito-review-detail">
+              <b>Motivo de revisión</b>
+              <p>{vistaRemito.turno.motivoRevision}</p>
+              {!!vistaRemito.turno.lineasDeclaradas?.length && <ul>{vistaRemito.turno.lineasDeclaradas.map((linea, indice) => <li key={indice}>Renglón OC {linea.renglonOc} · {linea.cantidad} · {linea.descripcion}</li>)}</ul>}
+              <p>Compará estos datos con el archivo antes de aprobar el turno.</p>
+            </div>}
             <footer className="remito-modal-actions">
               <span>El acceso vence en 5 minutos.</span>
               <a className="secondary-button" href={vistaRemito.url} target="_blank" rel="noreferrer">Abrir archivo</a>

@@ -96,7 +96,7 @@ h2 { margin-bottom: 0.45rem; font-size: 1.55rem; letter-spacing: -0.04em; line-h
 .field > span, .field small, .slots legend { color: var(--ink-soft); font-size: 0.84rem; font-weight: 720; }
 .field em { color: var(--ink-soft); font-style: normal; font-weight: 500; }
 .field small { font-size: 0.76rem; font-weight: 500; }
-.field input, .block-form input, .block-form select { min-width: 0; min-height: 2.9rem; padding: 0.64rem 0.72rem; color: var(--ink); background: rgba(255, 255, 255, 0.72); border: 1px solid rgba(206, 196, 190, 0.72); border-radius: 0.75rem; outline: none; transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease; }
+.field input, .field select, .block-form input, .block-form select { min-width: 0; min-height: 2.9rem; padding: 0.64rem 0.72rem; color: var(--ink); background: rgba(255, 255, 255, 0.72); border: 1px solid rgba(206, 196, 190, 0.72); border-radius: 0.75rem; outline: none; transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease; }
 .cuit-inputs, .oc-input { display: flex; align-items: center; gap: 0.42rem; min-height: 0; padding: 0; background: transparent; border: 0; border-radius: 0; }
 .cuit-inputs:focus-within, .oc-input:focus-within { border-color: transparent; box-shadow: none; }
 .cuit-inputs input, .oc-input input, .oc-input b { min-width: 0; min-height: 3rem; padding: 0.45rem 0.55rem; color: var(--ink); background: rgba(255, 255, 255, 0.8); border: 1px solid rgba(206, 196, 190, 0.74); border-radius: 0.78rem; box-shadow: 0 0.22rem 0.55rem rgba(56, 62, 97, 0.035); font-family: var(--font-geist), Arial, sans-serif; font-size: 0.88rem; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: 0.01em; text-align: center; transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease; }
@@ -108,7 +108,7 @@ h2 { margin-bottom: 0.45rem; font-size: 1.55rem; letter-spacing: -0.04em; line-h
 .oc-input b { display: grid; flex: 0 0 auto; min-width: 4.3rem; place-items: center; color: var(--teal-dark); background: var(--lilac-pale); border-color: #c5e6e2; }
 .oc-input input { flex: 1 1 auto; text-align: left; }
 .field input[type="file"] { padding: 0.47rem; font-size: 0.82rem; }
-.field input:focus, .block-form input:focus, .block-form select:focus { border-color: var(--lilac); background: white; box-shadow: 0 0 0 0.22rem rgba(112, 198, 207, 0.16); }
+.field input:focus, .field select:focus, .block-form input:focus, .block-form select:focus { border-color: var(--lilac); background: white; box-shadow: 0 0 0 0.22rem rgba(112, 198, 207, 0.16); }
 .form-wide { grid-column: 1 / -1; }
 .slots { margin: 0; padding: 1.05rem; border: 1px solid var(--line); border-radius: 0.72rem; }
 .slots legend { padding: 0 0.2rem; }
@@ -152,6 +152,7 @@ td small { margin-top: 0.1rem; color: var(--ink-soft); font-size: 0.77rem; }
 .free-slot td { color: #7c9497; }
 .status { display: inline-flex; width: max-content; padding: 0.21rem 0.52rem; border-radius: 999px; font-size: 0.75rem; font-weight: 760; }
 .status.reservado { color: #8b5d0b; background: var(--warning-pale); }
+.status.retenido { color: #8b5d0b; background: var(--warning-pale); }
 .status.confirmado { color: var(--teal-dark); background: var(--teal-pale); }
 .status.en_planta { color: #234f79; background: #e5eff9; }
 .status.anulado { color: var(--danger); background: var(--danger-pale); }
@@ -190,6 +191,9 @@ td small { margin-top: 0.1rem; color: var(--ink-soft); font-size: 0.77rem; }
 .remito-preview-unsupported b { color: var(--ink); }
 .remito-modal-actions { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.9rem 1.25rem; color: var(--ink-soft); border-top: 1px solid var(--line); font-size: 0.8rem; }
 .remito-modal-actions .secondary-button { width: auto; margin: 0; text-decoration: none; }
+.remito-review-detail { max-height: 9rem; overflow: auto; padding: 0.8rem 1.25rem; border-top: 1px solid var(--line); color: var(--ink-soft); font-size: 0.8rem; }
+.remito-review-detail p { margin: 0.3rem 0; }
+.remito-review-detail ul { margin: 0.3rem 0; padding-left: 1.2rem; }
 .detail-card { margin-top: 1.55rem; padding: 1.2rem; background: #f7fbfa; border: 1px solid #b6d7d0; border-radius: 0.78rem; }
 .detail-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
 .detail-heading h2 { margin: 0.05rem 0 0.25rem; font-size: 1.3rem; }
@@ -210,6 +214,13 @@ td small { margin-top: 0.1rem; color: var(--ink-soft); font-size: 0.77rem; }
 .remito-proposal-warning { display: block; margin-top: 0.45rem; color: var(--danger); }
 .remito-extracted-text { margin-top: 0.8rem; color: var(--ink-soft); font-size: 0.8rem; }
 .remito-extracted-text pre { max-height: 15rem; overflow: auto; margin: 0.5rem 0 0; padding: 0.65rem; background: #f4f6f5; color: var(--ink); white-space: pre-wrap; font: inherit; }
+.booking-remito-check { display: grid; gap: 0.8rem; margin: 1rem 0; padding: 1rem; border: 1px solid var(--line); border-radius: 0.65rem; background: white; }
+.booking-remito-check > .secondary-button { width: fit-content; }
+.booking-remito-line { display: grid; grid-template-columns: 1.5fr 0.65fr 1.5fr auto; gap: 0.55rem; align-items: end; padding: 0.8rem; border: 1px solid var(--line); border-radius: 0.55rem; background: #f8fbfa; }
+.booking-remito-line > b, .booking-remito-line > small { grid-column: 1 / -1; }
+.booking-review-checkbox { display: flex; align-items: center; gap: 0.5rem; color: var(--warning); font-size: 0.82rem; }
+.booking-review-checkbox input { width: auto; }
+@media (max-width: 760px) { .booking-remito-line { grid-template-columns: 1fr; } }
 .detail-summary { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1rem 0; }
 .detail-summary span { padding: 0.32rem 0.58rem; color: var(--teal-dark); background: var(--teal-pale); border-radius: 999px; font-size: 0.78rem; }
 .detail-summary span.needs-review { color: var(--warning); background: var(--warning-pale); }
