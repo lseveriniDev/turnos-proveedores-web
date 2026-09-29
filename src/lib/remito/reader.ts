@@ -8,7 +8,7 @@ async function reconocerImagen(imagen: Blob | HTMLCanvasElement, progreso: (mens
   const worker = await createWorker(["spa", "eng"]);
   try {
     const resultado = await worker.recognize(imagen);
-    return resultado.data.text;
+    return { texto: resultado.data.text, confianza: resultado.data.confidence / 100 };
   } finally {
     await worker.terminate();
   }
@@ -17,8 +17,8 @@ async function reconocerImagen(imagen: Blob | HTMLCanvasElement, progreso: (mens
 export async function leerRemito(archivo: Blob, progreso: (mensaje: string) => void): Promise<LecturaRemito> {
   if (!archivo.type.includes("pdf")) {
     progreso("Leyendo la foto del remito…");
-    const texto = await reconocerImagen(archivo, progreso);
-    return { ...analizarTextoRemito(texto), texto, metodo: "ocr", paginas: 1, incompleto: false };
+    const { texto, confianza } = await reconocerImagen(archivo, progreso);
+    return { ...analizarTextoRemito(texto), texto, metodo: "ocr", paginas: 1, incompleto: false, confianza };
   }
 
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
@@ -29,6 +29,7 @@ export async function leerRemito(archivo: Blob, progreso: (mensaje: string) => v
   const paginas = Math.min(totalPaginas, MAX_PAGINAS);
   const textos: string[] = [];
   let usoOcr = false;
+  let confianza = 1;
 
   try {
     for (let indice = 1; indice <= paginas; indice += 1) {
@@ -46,7 +47,9 @@ export async function leerRemito(archivo: Blob, progreso: (mensaje: string) => v
         const contexto = canvas.getContext("2d");
         if (!contexto) throw new Error("No se pudo preparar la imagen del PDF.");
         await pagina.render({ canvas, canvasContext: contexto, viewport }).promise;
-        texto = await reconocerImagen(canvas, progreso);
+        const resultado = await reconocerImagen(canvas, progreso);
+        texto = resultado.texto;
+        confianza = Math.min(confianza, resultado.confianza);
         canvas.width = 0;
         canvas.height = 0;
       }
@@ -57,5 +60,5 @@ export async function leerRemito(archivo: Blob, progreso: (mensaje: string) => v
     await carga.destroy();
   }
   const texto = textos.join("\n");
-  return { ...analizarTextoRemito(texto), texto, metodo: usoOcr ? "ocr" : "texto", paginas, incompleto: totalPaginas > MAX_PAGINAS };
+  return { ...analizarTextoRemito(texto), texto, metodo: usoOcr ? "ocr" : "texto", paginas, incompleto: totalPaginas > MAX_PAGINAS, confianza };
 }

@@ -10,6 +10,7 @@ export type LecturaRemito = {
   metodo: "texto" | "ocr";
   paginas: number;
   incompleto: boolean;
+  confianza: number;
 };
 
 function limpiarDescripcion(valor: string) {
@@ -55,7 +56,7 @@ export function sugerirCodigo(descripcion: string, productos: { codigo: string; 
     const similitud = comunes / Math.max(origen.size, destino.size, 1);
     return { codigo: producto.codigo, similitud };
   }).sort((a, b) => b.similitud - a.similitud);
-  // A near-exact description is the only automatic suggestion. The operator confirms it.
+  // Only a unique, near-exact description can be matched automatically.
   return candidatos[0]?.similitud >= 0.85 && (candidatos[0].similitud - (candidatos[1]?.similitud ?? 0)) >= 0.15
     ? candidatos[0].codigo
     : "";

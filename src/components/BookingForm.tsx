@@ -1,6 +1,6 @@
 "use client";
 
-import { ClipboardEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { ClipboardEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { FRANJAS, fechaArgentina, textoFecha } from "@/lib/domain";
 import { LecturaRemito, sugerirCodigo } from "@/lib/remito/parse";
@@ -29,18 +29,12 @@ type RespuestaReserva = {
   upload: { path: string; token: string };
 };
 type RespuestaConfirmacion = { confirmado: boolean; retenido?: boolean; motivo?: string; email_enviado: boolean };
-type LineaOc = { renglon: number; producto_codigo: string; descripcion_producto: string | null; unidad_medida: string | null; cantidad_ordenada: number | string; cantidad_recibida: number | string; cantidad_pendiente: number | string };
-type LineaRevisada = { id: number; renglonOc: string; cantidad: string; descripcion: string };
+type LineaOc = { renglon: number; producto_codigo: string; descripcion_producto: string | null; cantidad_ordenada: number | string; cantidad_recibida: number | string };
+type LineaDetectada = { renglonOc: number; cantidad: number; descripcion: string };
+type EstadoAnalisis = "sin_archivo" | "analizando" | "aprobado" | "revision" | "exceso" | "error";
 
 function numero(valor: string | number) { return Number(String(valor).replace(",", ".")); }
-function formatoCantidad(valor: number) { return new Intl.NumberFormat("es-AR", { maximumFractionDigits: 4 }).format(valor); }
 function normalizarRemito(valor: string) { return valor.match(/\d+/g)?.map((parte) => parte.replace(/^0+(?=\d)/, "")).join("-") ?? valor.trim().toUpperCase(); }
-function descripcionCoincide(a: string, b: string) {
-  const palabras = (valor: string) => new Set(valor.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().match(/[A-Z0-9]+/g) ?? []);
-  const origen = palabras(a);
-  const destino = palabras(b);
-  return origen.size > 0 && destino.size > 0 && [...origen].filter((palabra) => destino.has(palabra)).length / Math.max(origen.size, destino.size) >= 0.85;
-}
 
 const fases: { clave: Fase; titulo: string; detalle: string }[] = [
   { clave: "acceso", titulo: "Validá tu acceso", detalle: "CUIT y orden de compra" },
@@ -135,16 +129,16 @@ export function BookingForm() {
   const [estado, setEstado] = useState<"inicial" | "enviando" | "exito" | "error">("inicial");
   const [mensaje, setMensaje] = useState("");
   const [codigo, setCodigo] = useState("");
-  const [lineasOc, setLineasOc] = useState<LineaOc[]>([]);
-  const [lineasRevisadas, setLineasRevisadas] = useState<LineaRevisada[]>([]);
+  const [lineasDetectadas, setLineasDetectadas] = useState<LineaDetectada[]>([]);
   const [lectura, setLectura] = useState<LecturaRemito | null>(null);
-  const [leyendo, setLeyendo] = useState(false);
+  const [estadoAnalisis, setEstadoAnalisis] = useState<EstadoAnalisis>("sin_archivo");
   const [progresoLectura, setProgresoLectura] = useState("");
-  const [lecturaFallida, setLecturaFallida] = useState(false);
+  const [analisisIncompleto, setAnalisisIncompleto] = useState(false);
   const [retenido, setRetenido] = useState(false);
-  const [numeroDudoso, setNumeroDudoso] = useState(false);
+  const analisisVigente = useRef(0);
 
   const fechaLegible = useMemo(() => textoFecha(datos.fecha), [datos.fecha]);
+  const numeroPendiente = !!lectura && (!lectura.numero || !datos.numeroRemito || normalizarRemito(lectura.numero) !== normalizarRemito(datos.numeroRemito));
 
   const actualizar = (campo: keyof DatosFormulario, valor: string) => {
     setDatos((anterior) => ({ ...anterior, [campo]: valor }));
@@ -174,16 +168,21 @@ export function BookingForm() {
     actualizar("ordenCompra", `0008-${sufijo}`);
   };
 
-  const actualizarLinea = (id: number, campo: "renglonOc" | "cantidad" | "descripcion", valor: string) => {
-    setLineasRevisadas((actuales) => actuales.map((linea) => linea.id === id ? { ...linea, [campo]: valor } : linea));
+  const analizarRemito = async (seleccionado: File | null) => {
+    const solicitud = ++analisisVigente.current;
+    setArchivo(seleccionado);
+    setFase("datos");
+    setLectura(null);
+    setLineasDetectadas([]);
+    setAnalisisIncompleto(false);
     setErrorDatos("");
-  };
-
-  const analizarRemito = async () => {
-    if (!archivo) { setErrorDatos("Adjuntá el remito para analizarlo."); return; }
-    if (archivo.size > 10 * 1024 * 1024) { setErrorDatos("El archivo no puede superar 10 MB."); return; }
-    setLeyendo(true);
-    setErrorDatos("");
+    if (!seleccionado) { setEstadoAnalisis("sin_archivo"); return; }
+    if (seleccionado.size > 10 * 1024 * 1024) {
+      setEstadoAnalisis("error");
+      setErrorDatos("El archivo no puede superar 10 MB.");
+      return;
+    }
+    setEstadoAnalisis("analizando");
     setProgresoLectura("Consultando los productos de la OC…");
     let detalleCargado = false;
     try {
@@ -196,28 +195,40 @@ export function BookingForm() {
         if (error) throw new Error("No pudimos consultar los productos de la OC. Intentá nuevamente.");
         lineas = ((data as { lineas?: LineaOc[] } | null)?.lineas ?? []);
       }
+      if (solicitud !== analisisVigente.current) return;
       detalleCargado = true;
-      setLineasOc(lineas);
       const { leerRemito } = await import("@/lib/remito/reader");
-      const resultado = await leerRemito(archivo, setProgresoLectura);
+      const resultado = await leerRemito(seleccionado, (mensaje) => {
+        if (solicitud === analisisVigente.current) setProgresoLectura(mensaje);
+      });
+      if (solicitud !== analisisVigente.current) return;
       setLectura(resultado);
-      setLecturaFallida(false);
-      setNumeroDudoso(false);
-      setLineasRevisadas(resultado.renglones.map((linea, id) => {
+      // A weak OCR result can suggest a wrong quantity. Send it for internal review instead.
+      const lecturaConfiable = resultado.confianza >= 0.8;
+      const detectadas: LineaDetectada[] = [];
+      let pendientes = !lecturaConfiable || resultado.incompleto || resultado.renglones.length === 0 || lineas.length === 0;
+      if (lecturaConfiable) for (const linea of resultado.renglones) {
         const sugerido = sugerirCodigo(linea.descripcion, lineas.map((oc) => ({ codigo: oc.producto_codigo, descripcion: oc.descripcion_producto })));
         const coincidencias = lineas.filter((oc) => oc.producto_codigo === sugerido);
-        return { id, renglonOc: coincidencias.length === 1 ? String(coincidencias[0].renglon) : "", cantidad: linea.cantidad, descripcion: linea.descripcion };
-      }));
+        const cantidad = numero(linea.cantidad);
+        if (coincidencias.length !== 1 || !Number.isFinite(cantidad) || cantidad <= 0) { pendientes = true; continue; }
+        detectadas.push({ renglonOc: coincidencias[0].renglon, cantidad, descripcion: linea.descripcion });
+      }
+      setLineasDetectadas(detectadas);
+      setAnalisisIncompleto(pendientes);
+      const acumuladas = new Map<number, number>();
+      for (const linea of detectadas) acumuladas.set(linea.renglonOc, (acumuladas.get(linea.renglonOc) ?? 0) + linea.cantidad);
+      const exceso = lineas.some((oc) => acumuladas.has(oc.renglon) && numero(oc.cantidad_recibida) + (acumuladas.get(oc.renglon) ?? 0) > numero(oc.cantidad_ordenada) * 1.1 + 0.000001);
+      setEstadoAnalisis(exceso ? "exceso" : pendientes ? "revision" : "aprobado");
     } catch {
+      if (solicitud !== analisisVigente.current) return;
       setLectura(null);
-      setLecturaFallida(detalleCargado);
-      setLineasRevisadas([]);
-      setErrorDatos(detalleCargado
-        ? "No pudimos leer este archivo. Podés cargar los renglones manualmente; el turno quedará pendiente de revisión."
-        : "No pudimos consultar los productos de la OC. Intentá nuevamente.");
+      setLineasDetectadas([]);
+      setAnalisisIncompleto(true);
+      setEstadoAnalisis(detalleCargado ? "revision" : "error");
+      if (!detalleCargado) setErrorDatos("No pudimos consultar la OC. Volvé a adjuntar el remito para intentar nuevamente.");
     } finally {
-      setLeyendo(false);
-      setProgresoLectura("");
+      if (solicitud === analisisVigente.current) setProgresoLectura("");
     }
   };
 
@@ -278,16 +289,12 @@ export function BookingForm() {
       setErrorDatos("Completá el correo, el número de remito y adjuntá el archivo para continuar.");
       return;
     }
-    if (!lectura && !lecturaFallida) {
-      setErrorDatos("Primero analizá el remito y revisá los productos de la OC.");
+    if (estadoAnalisis === "exceso") {
+      setErrorDatos("El remito supera el límite permitido de la OC. Consultá con recepción.");
       return;
     }
-    if (lectura?.numero && normalizarRemito(lectura.numero) !== normalizarRemito(datos.numeroRemito) && !numeroDudoso) {
-      setErrorDatos(`El número leído (${lectura.numero}) no coincide con el ingresado. Corregilo o pedí revisión a recepción si el escaneo se leyó mal.`);
-      return;
-    }
-    if (lineasRevisadas.some((linea) => !linea.renglonOc || !Number.isFinite(numero(linea.cantidad)) || numero(linea.cantidad) <= 0)) {
-      setErrorDatos("Elegí un producto de la OC y confirmá una cantidad mayor a cero para cada renglón.");
+    if (estadoAnalisis !== "aprobado" && estadoAnalisis !== "revision") {
+      setErrorDatos("Esperá a que termine el análisis del remito o volvé a adjuntarlo.");
       return;
     }
     setFase("horario");
@@ -298,6 +305,11 @@ export function BookingForm() {
     if (fase !== "horario" || !datos.hora) {
       setEstado("error");
       setMensaje("Elegí un horario disponible para continuar.");
+      return;
+    }
+    if (estadoAnalisis !== "aprobado" && estadoAnalisis !== "revision") {
+      setEstado("error");
+      setMensaje("El remito todavía no está listo para reservar el turno.");
       return;
     }
 
@@ -326,8 +338,8 @@ export function BookingForm() {
           patente: datos.patente || null,
           transportista: datos.transportista || null,
           archivo: { nombre: archivo.name, tipo: archivo.type, bytes: archivo.size },
-          lineasDeclaradas: lineasRevisadas.map((linea) => ({ renglonOc: Number(linea.renglonOc), cantidad: numero(linea.cantidad), descripcion: linea.descripcion })),
-          lecturaIncompleta: numeroDudoso || lecturaFallida || !lectura || lectura.incompleto || lectura.renglones.length === 0,
+          lineasDeclaradas: lineasDetectadas,
+          lecturaIncompleta: analisisIncompleto || !lectura || !lectura.numero || normalizarRemito(lectura.numero) !== normalizarRemito(datos.numeroRemito),
         },
       });
       const data = respuesta as RespuestaReserva | null;
@@ -365,7 +377,7 @@ export function BookingForm() {
       const resultado = confirmacion as RespuestaConfirmacion | null;
       if (resultado?.retenido) {
         setRetenido(true);
-        setMensaje(`${resultado.motivo ?? "El remito necesita revisión."} Recepción debe aprobar el turno antes de que quede confirmado.${resultado.email_enviado ? " Te enviamos un correo con la solicitud." : " Conservá el código de solicitud."}`);
+        setMensaje(`Recepción debe revisar el remito antes de confirmar el turno.${resultado.email_enviado ? " Te enviamos un correo con la solicitud." : " Conservá el código de solicitud."}`);
       } else if (errorConfirmacion || !resultado?.confirmado) {
         setMensaje("El remito se adjuntó, pero no pudimos completar la confirmación. Comunicate con recepción e indicá el código.");
       } else if (!resultado.email_enviado) {
@@ -380,30 +392,31 @@ export function BookingForm() {
   };
 
   const reiniciar = () => {
+    analisisVigente.current += 1;
     setDatos(datosIniciales());
     setArchivo(null);
     setProveedorValidado("");
     setCodigo("");
-    setLineasOc([]);
-    setLineasRevisadas([]);
+    setLineasDetectadas([]);
     setLectura(null);
-    setLecturaFallida(false);
+    setEstadoAnalisis("sin_archivo");
+    setAnalisisIncompleto(false);
     setRetenido(false);
-    setNumeroDudoso(false);
     setMensaje("");
     setEstado("inicial");
     setFase("acceso");
   };
 
   const editarAcceso = () => {
+    analisisVigente.current += 1;
     setFase("acceso");
     setProveedorValidado("");
     setErrorAcceso("");
-    setLineasOc([]);
-    setLineasRevisadas([]);
+    setArchivo(null);
+    setLineasDetectadas([]);
     setLectura(null);
-    setLecturaFallida(false);
-    setNumeroDudoso(false);
+    setEstadoAnalisis("sin_archivo");
+    setAnalisisIncompleto(false);
   };
 
   return (
@@ -485,7 +498,7 @@ export function BookingForm() {
                 </label>
                 <label className="field form-wide">
                   <span>Remito en PDF o foto</span>
-                  <input required type="file" accept="application/pdf,image/jpeg,image/png,image/webp,image/heic" onChange={(e) => { setArchivo(e.target.files?.[0] ?? null); setLectura(null); setLecturaFallida(false); setNumeroDudoso(false); setLineasRevisadas([]); setErrorDatos(""); }} />
+                  <input required type="file" accept="application/pdf,image/jpeg,image/png,image/webp,image/heic" onChange={(e) => void analizarRemito(e.target.files?.[0] ?? null)} />
                   <small>{archivo ? archivo.name : "Hasta 10 MB."}</small>
                 </label>
                 <label className="field">
@@ -497,34 +510,14 @@ export function BookingForm() {
                   <input value={datos.transportista} onChange={(e) => actualizar("transportista", e.target.value)} placeholder="Nombre de la empresa transportista" />
                 </label>
               </div>
-              {fase === "datos" && archivo && <div className="booking-remito-check">
-                <button className="secondary-button" type="button" disabled={leyendo} onClick={() => void analizarRemito()}>{leyendo ? "Leyendo remito…" : lectura || lecturaFallida ? "Volver a analizar" : "Leer remito y comparar con la OC"}</button>
-                {leyendo && <p className="form-alert info" role="status">{progresoLectura}</p>}
-                {(lectura || lecturaFallida) && <>
-                  <p className="remito-reading-hint">Revisá lo leído en el archivo. Seleccioná el producto de la OC y corregí la cantidad si hace falta. Las entregas parciales están permitidas; si el acumulado supera el 110% de un renglón, recepción revisará el turno antes de confirmarlo.</p>
-                  {lectura && <p className="remito-reading-hint">Número leído: <b>{lectura.numero ?? "no reconocido"}</b>. {lectura.incompleto ? "El archivo tiene más de tres páginas; recepción revisará el resto." : ""}</p>}
-                  {lectura?.numero && normalizarRemito(lectura.numero) !== normalizarRemito(datos.numeroRemito) && <label className="booking-review-checkbox"><input type="checkbox" checked={numeroDudoso} onChange={(e) => setNumeroDudoso(e.target.checked)} /> El escaneo leyó mal el número; recepción revisará el archivo antes de confirmar.</label>}
-                  {lineasOc.length === 0 && <p className="form-alert warning">No hay renglones cargados para esta OC. La solicitud quedará pendiente de revisión.</p>}
-                  {lineasRevisadas.map((linea, indice) => {
-                    const oc = lineasOc.find((item) => String(item.renglon) === linea.renglonOc);
-                    const totalRemito = lineasRevisadas.filter((item) => item.renglonOc === linea.renglonOc).reduce((total, item) => total + numero(item.cantidad || "0"), 0);
-                    const acumulado = oc ? numero(oc.cantidad_recibida) + totalRemito : 0;
-                    const limite = oc ? numero(oc.cantidad_ordenada) * 1.1 : 0;
-                    return <div className="booking-remito-line" key={linea.id}>
-                      <b>Producto {indice + 1}</b>
-                      <label className="field"><span>Renglón de la OC</span><select value={linea.renglonOc} onChange={(e) => actualizarLinea(linea.id, "renglonOc", e.target.value)}><option value="">Elegí un producto</option>{lineasOc.map((item) => <option key={item.renglon} value={item.renglon}>{item.renglon} · {item.producto_codigo} · {item.descripcion_producto ?? "Sin descripción"}</option>)}</select></label>
-                      <label className="field"><span>Cantidad del remito</span><input inputMode="decimal" value={linea.cantidad} onChange={(e) => actualizarLinea(linea.id, "cantidad", e.target.value)} /></label>
-                      <label className="field"><span>Descripción leída</span><input value={linea.descripcion} onChange={(e) => actualizarLinea(linea.id, "descripcion", e.target.value)} /></label>
-                      <button className="text-button danger" type="button" onClick={() => setLineasRevisadas((actuales) => actuales.filter((item) => item.id !== linea.id))}>Quitar</button>
-                      {oc && Number.isFinite(acumulado) && <small className={acumulado > limite ? "remito-proposal-warning" : "remito-reading-hint"}>OC: {formatoCantidad(numero(oc.cantidad_ordenada))} {oc.unidad_medida ?? ""} · Ya recibido: {formatoCantidad(numero(oc.cantidad_recibida))} · Con este remito: {formatoCantidad(acumulado)} · Límite: {formatoCantidad(limite)}</small>}
-                      {oc && !descripcionCoincide(linea.descripcion, oc.descripcion_producto ?? "") && <small className="remito-proposal-warning">La descripción no coincide claramente con la OC. Recepción revisará este renglón antes de confirmar.</small>}
-                    </div>;
-                  })}
-                  <button className="text-button" type="button" onClick={() => setLineasRevisadas((actuales) => [...actuales, { id: Math.max(-1, ...actuales.map((linea) => linea.id)) + 1, renglonOc: "", cantidad: "", descripcion: "" }])}>Agregar un producto del remito</button>
-                </>}
+              {fase === "datos" && archivo && <div className="booking-remito-status" aria-live="polite">
+                {estadoAnalisis === "analizando" && <p className="form-alert info" role="status">{progresoLectura || "Analizando el remito…"}</p>}
+                {estadoAnalisis === "aprobado" && !numeroPendiente && <p className="form-alert info" role="status">Remito analizado. Podés continuar.</p>}
+                {(estadoAnalisis === "revision" || (estadoAnalisis === "aprobado" && numeroPendiente)) && <p className="form-alert warning" role="status">Remito cargado. Recepción revisará el archivo antes de confirmar el turno.</p>}
+                {estadoAnalisis === "exceso" && <p className="form-alert error" role="alert">El remito supera el límite permitido de la OC. Consultá con recepción.</p>}
               </div>}
               {errorDatos && <p className="form-alert error phase-alert" role="alert">{errorDatos}</p>}
-              {fase === "datos" && <button className="primary-button" type="button" onClick={continuarAHorarios}>Continuar a elegir horario</button>}
+              {fase === "datos" && <button className="primary-button" type="button" disabled={estadoAnalisis === "analizando" || estadoAnalisis === "exceso" || estadoAnalisis === "error"} onClick={continuarAHorarios}>Continuar a elegir horario</button>}
             </section>
 
             <section className={`form-phase schedule-phase ${fase !== "horario" ? "locked" : ""}`} aria-labelledby="horario-entrega-titulo">

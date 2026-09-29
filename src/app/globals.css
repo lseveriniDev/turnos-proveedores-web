@@ -214,13 +214,7 @@ td small { margin-top: 0.1rem; color: var(--ink-soft); font-size: 0.77rem; }
 .remito-proposal-warning { display: block; margin-top: 0.45rem; color: var(--danger); }
 .remito-extracted-text { margin-top: 0.8rem; color: var(--ink-soft); font-size: 0.8rem; }
 .remito-extracted-text pre { max-height: 15rem; overflow: auto; margin: 0.5rem 0 0; padding: 0.65rem; background: #f4f6f5; color: var(--ink); white-space: pre-wrap; font: inherit; }
-.booking-remito-check { display: grid; gap: 0.8rem; margin: 1rem 0; padding: 1rem; border: 1px solid var(--line); border-radius: 0.65rem; background: white; }
-.booking-remito-check > .secondary-button { width: fit-content; }
-.booking-remito-line { display: grid; grid-template-columns: 1.5fr 0.65fr 1.5fr auto; gap: 0.55rem; align-items: end; padding: 0.8rem; border: 1px solid var(--line); border-radius: 0.55rem; background: #f8fbfa; }
-.booking-remito-line > b, .booking-remito-line > small { grid-column: 1 / -1; }
-.booking-review-checkbox { display: flex; align-items: center; gap: 0.5rem; color: var(--warning); font-size: 0.82rem; }
-.booking-review-checkbox input { width: auto; }
-@media (max-width: 760px) { .booking-remito-line { grid-template-columns: 1fr; } }
+.booking-remito-status { margin: 0.9rem 0; }
 .detail-summary { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1rem 0; }
 .detail-summary span { padding: 0.32rem 0.58rem; color: var(--teal-dark); background: var(--teal-pale); border-radius: 999px; font-size: 0.78rem; }
 .detail-summary span.needs-review { color: var(--warning); background: var(--warning-pale); }

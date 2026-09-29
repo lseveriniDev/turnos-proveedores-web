@@ -278,12 +278,14 @@ Deno.serve(async (request) => {
     const excedidos = (lineasOc ?? []).filter((oc) =>
       cantidades.has(oc.renglon) && Number(oc.cantidad_recibida) + (cantidades.get(oc.renglon) ?? 0) > Number(oc.cantidad_ordenada) * 1.1 + 0.000001
     ).map((oc) => oc.renglon);
+    if (excedidos.length > 0) {
+      return responder({ error: "El remito supera el límite permitido de la OC. Consultá con recepción." }, 422);
+    }
     const descripcionesDudosas = lineas.filter((linea) => {
       const oc = (lineasOc ?? []).find((item) => item.renglon === Number(linea.renglonOc));
       return !oc || similitudDescripcion(String(linea.descripcion ?? ""), oc.descripcion_producto ?? "") < 0.85;
     }).map((linea) => Number(linea.renglonOc));
     const motivosRevision = [
-      excedidos.length > 0 ? `Los renglones ${[...new Set(excedidos)].join(", ")} superan el 110% acumulado de la OC.` : null,
       descripcionesDudosas.length > 0 ? `La descripción de los renglones ${[...new Set(descripcionesDudosas)].join(", ")} no coincide claramente con la OC.` : null,
       datos.lecturaIncompleta || lineas.length === 0 || (lineasOc ?? []).length === 0 ? "No se pudo verificar automáticamente todo el remito." : null,
     ].filter(Boolean);
