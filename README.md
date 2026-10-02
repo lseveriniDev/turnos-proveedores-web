@@ -2,13 +2,15 @@
 
 Portal de reservas y agenda de recepción. La versión nueva usa Azure Static Web Apps para el sitio y la API, Cloud Firestore para los datos y SharePoint para los PDF e imágenes de remitos. El acceso al panel usa la cuenta Microsoft 365 y una lista explícita de administradores. GitHub Actions publica los cambios de la rama `firebase-azure-migration`.
 
-## Estado del traslado
+## Estado del portal (02/10/2026)
 
-- Portal anterior en servicio: <https://turnos-proveedores-gottert.pages.dev/>.
-- Nuevo sitio Azure: <https://green-forest-0f3977b0f.2.azurestaticapps.net/> (pendiente de publicación y prueba).
+- Portal Azure publicado: <https://green-forest-0f3977b0f.2.azurestaticapps.net/>.
+- Panel interno: <https://green-forest-0f3977b0f.2.azurestaticapps.net/panel/> (inicio de sesión Microsoft 365).
+- Portal anterior disponible como respaldo: <https://turnos-proveedores-gottert.pages.dev/>.
 - Firebase: proyecto `turnos-proveedores-gottert`, Firestore `southamerica-east1`, plan Spark.
 - SharePoint: `GOTTERT / Shared Documents / 05-Suministros / 1. Compras / 3. Registros / Turnos Proveedores`.
-- Se conserva la versión anterior hasta completar migración, publicación y prueba de punta a punta.
+- Se probó una reserva completa con OC abierta: archivo en SharePoint y correo entregado. El turno de prueba se anuló y el horario quedó libre. Los remitos anteriores fueron pruebas, según confirmó el equipo.
+- Las exportaciones de Summa del 02/10 quedaron cargadas: 60 proveedores y 78 OCs en la base, 64 abiertas. Cuatro OCs de dos proveedores ausentes del catálogo quedaron fuera de la oferta de turnos por decisión del equipo.
 
 ## Cómo funciona
 
@@ -21,6 +23,8 @@ El panel usa el inicio de sesión de Microsoft 365 de Azure Static Web Apps. Ade
 ## Operación diaria de Summa
 
 Exportá el reporte completo de OCs y el catálogo de proveedores dos o tres veces al día. En el panel, seleccioná ambas planillas, revisá la vista previa y confirmá. La importación crea o actualiza proveedores, OCs y sus renglones; solicita confirmación para cerrar OCs que desaparecieron del reporte. El CSV sirve para una carga parcial y no cierra OCs.
+
+Si el panel no permite importar, `scripts/sync-summa-firebase.js` ofrece un respaldo operativo. Requiere una cuenta de servicio privada en `FIREBASE_SERVICE_ACCOUNT_FILE`; primero se ejecuta en modo de revisión y solo `--apply` escribe los cambios. No usar una exportación de más de cuatro horas.
 
 El botón **Descargar respaldo** guarda un JSON con proveedores, OCs, turnos y bloqueos. Los archivos de remito permanecen en SharePoint. Descargá un respaldo al menos una vez por día hasta automatizar la copia.
 
@@ -52,13 +56,11 @@ npm test
 
 El sitio se exporta a `out/`. La API está en `api/` y se publica junto al sitio. Para probarla localmente se necesita Azure Static Web Apps CLI y un `api/local.settings.json` privado con las mismas variables.
 
-El archivo histórico de Supabase se exportó a `.local/supabase-snapshot.json` (ignorado por Git). `scripts/migrate-supabase-snapshot.js` importa esos datos a Firestore de forma controlada. Mientras se copian los archivos históricos a SharePoint, el panel enlaza los remitos pendientes al portal anterior. No retirar el portal anterior hasta completar esa copia.
-
-Para copiar los archivos históricos disponibles, guardarlos como `.local/remitos/TP-00015.pdf` (usando el código de cada turno y su extensión), comprobar con `node scripts/migrate-remito-files.js --dry-run` y ejecutar el mismo comando sin `--dry-run` tras configurar `FIREBASE_SERVICE_ACCOUNT_FILE` y las variables `GRAPH_*` y `SHAREPOINT_*`. El proceso puede reanudarse: omite los turnos que ya tienen archivo en SharePoint.
+El archivo histórico de Supabase se exportó a `.local/supabase-snapshot.json` (ignorado por Git). `scripts/migrate-supabase-snapshot.js` permite restaurarlo de forma controlada si hiciera falta. Los remitos de la versión anterior eran de prueba; no requieren copia operativa a SharePoint.
 
 ## Seguridad y publicación
 
 - `firestore.rules` deniega todas las lecturas y escrituras directas; solo la API con credencial de servicio accede a los datos.
-- `public/staticwebapp.config.json` exige inicio de sesión para `/api/admin/*`; la API también comprueba el correo autorizado.
+- `public/staticwebapp.config.json` exige inicio de sesión para `/api/staff-*`; la API también comprueba el correo autorizado.
 - El flujo de GitHub publica la rama `firebase-azure-migration` en el sitio Azure. La dirección anterior permanece separada.
-- Antes de compartir el nuevo enlace, probar una reserva real: carga de remito, control del 110%, correo, agenda, visualización del archivo, aprobación, llegada y anulación.
+- El panel y el respaldo se verificaron con la cuenta autorizada. Antes de abrirlo a todos los proveedores, conviene que recepción haga una reserva propia y confirme su procedimiento de aprobación, llegada y anulación.
