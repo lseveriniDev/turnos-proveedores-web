@@ -1,6 +1,9 @@
 name: Publicar turnos en Azure
 
 on:
+  push:
+    branches:
+      - firebase-azure-migration
   workflow_dispatch:
 
 permissions:
