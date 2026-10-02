@@ -163,7 +163,10 @@ route("book", ["POST"], async (request, context) => {
 });
 
 route("admin_agenda", ["GET"], async (request) => {
-  await requireAdmin(request);
+  try { await requireAdmin(request); }
+  catch (error) {
+    return json({ error: `No pudimos validar tu sesión: ${error instanceof Error ? error.message : "error desconocido"}` }, error?.status || 500);
+  }
   const fecha = checked(request.query.get("fecha"), 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) fail("Elegí una fecha válida.");
   try {
