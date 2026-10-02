@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useState } from "react";
+import { ChangeEvent, useEffect, useState } from "react";
 import readXlsxFile from "read-excel-file/browser";
 
 import { obtenerSupabase } from "@/lib/supabase/client";
@@ -52,6 +52,14 @@ type ProveedorActual = { cuit: string; email: string | null; codigo_externo: str
 
 const columnasOc = ["Segmento", "Renglon_OC", "Proveed_Id", "RazonSocial", "TipoPermi_Id", "Estado_Id", "Cantidad", "Cantidad_Recibida", "CantidadPendiente", "Moneda_Id", "Producto_id", "DescripcionProducto", "Medida_Id", "Precio", "Fecha"];
 const columnasCatalogo = ["Proveed_Id", "RazonSocial", "Cuit", "EMail"];
+const VIGENCIA_REPORTE_MS = 4 * 60 * 60 * 1000;
+
+function exigirReporteReciente(archivo: File) {
+  const antiguedad = Date.now() - archivo.lastModified;
+  if (antiguedad > VIGENCIA_REPORTE_MS || antiguedad < -5 * 60 * 1000) {
+    throw new Error("El reporte de OCs tiene más de cuatro horas o una fecha incorrecta. Exportá uno nuevo de Summa antes de actualizar.");
+  }
+}
 
 function texto(valor: unknown): string {
   if (valor === null || valor === undefined) return "";
@@ -325,6 +333,27 @@ export function CsvImporter({ modoDemo, informar }: { modoDemo: boolean; informa
   const [aviso, setAviso] = useState("");
   const [errorLocal, setErrorLocal] = useState("");
   const [progreso, setProgreso] = useState("");
+  const [ultimaActualizacion, setUltimaActualizacion] = useState<string | null>(null);
+  const [cargaVencida, setCargaVencida] = useState(false);
+
+  useEffect(() => {
+    if (modoDemo) return;
+    let vigente = true;
+    const consultar = async () => {
+      const supabase = obtenerSupabase();
+      if (!supabase) return;
+      const { data } = await supabase.from("ordenes_compra")
+        .select("updated_at").order("updated_at", { ascending: false }).limit(1).maybeSingle();
+      if (vigente) {
+        const fecha = data?.updated_at ?? null;
+        setUltimaActualizacion(fecha);
+        setCargaVencida(Boolean(fecha && Date.now() - new Date(fecha).getTime() > VIGENCIA_REPORTE_MS));
+      }
+    };
+    void consultar();
+    const intervalo = window.setInterval(() => void consultar(), 5 * 60 * 1000);
+    return () => { vigente = false; window.clearInterval(intervalo); };
+  }, [modoDemo]);
 
   const notificar = (texto: string, esError = false) => {
     setAviso(esError ? "" : texto);
@@ -346,6 +375,7 @@ export function CsvImporter({ modoDemo, informar }: { modoDemo: boolean; informa
     notificar("");
     setProgreso("Leyendo las planillas de Summa…");
     try {
+      exigirReporteReciente(archivoOc);
       const propuesta = await prepararReporteSumma(archivoOc, archivoCatalogo);
       setProgreso("Comparando las OCs con la agenda actual…");
       setVistaPrevia(modoDemo ? crearVistaPreviaDemo(propuesta) : await crearVistaPrevia(propuesta));
@@ -381,6 +411,10 @@ export function CsvImporter({ modoDemo, informar }: { modoDemo: boolean; informa
 
   const confirmarImportacion = async () => {
     if (!vistaPrevia) return;
+    if (vistaPrevia.fuente === "summa" && archivoOc) {
+      try { exigirReporteReciente(archivoOc); }
+      catch (error) { notificar(error instanceof Error ? error.message : "Exportá un reporte nuevo de Summa.", true); return; }
+    }
     if (vistaPrevia.aCerrar.length && !confirmarCierre) {
       notificar("Confirmá el cierre de OCs antes de aplicar esta actualización.", true);
       return;
@@ -465,6 +499,10 @@ export function CsvImporter({ modoDemo, informar }: { modoDemo: boolean; informa
         if (errorCierre) throw new Error("Actualizamos las OCs vigentes, pero no pudimos cerrar las que ya no están en el reporte.");
       }
       notificar(`Actualización lista: ${vistaPrevia.proveedores.length} proveedores y ${vistaPrevia.ordenes.length} OCs procesadas${lineasActualizadas ? `; ${lineasActualizadas} renglones actualizados.` : ""}${controlDetalladoPendiente ? "; el detalle por renglón se activará cuando apliques la migración pendiente." : ""}${vistaPrevia.aCerrar.length ? `; ${vistaPrevia.aCerrar.length} OCs cerradas.` : "."}`);
+      if (vistaPrevia.fuente === "summa") {
+        setUltimaActualizacion(new Date().toISOString());
+        setCargaVencida(false);
+      }
       limpiarVista();
     } catch (error) {
       notificar(error instanceof Error ? error.message : "No pudimos aplicar la actualización.", true);
@@ -493,6 +531,10 @@ export function CsvImporter({ modoDemo, informar }: { modoDemo: boolean; informa
         <p className="eyebrow">Sincronización Summa</p>
         <h2 id="importacion-titulo">Actualizar proveedores y OCs</h2>
         <p>Elegí las dos exportaciones originales. Primero vas a ver qué se dará de alta, actualizará o cerrará; nada cambia hasta confirmarlo.</p>
+        {!modoDemo && ultimaActualizacion && <p className={cargaVencida ? "sync-age stale" : "sync-age"}>
+          Último cambio registrado en OCs: {new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Argentina/Buenos_Aires" }).format(new Date(ultimaActualizacion))}.
+          {cargaVencida && " Pasaron más de cuatro horas: actualizá Summa antes de usar estos datos para nuevas entregas."}
+        </p>}
       </div>
       <div className="import-actions">
         <label className="file-picker"><span>Reporte de OCs (.xlsx)</span><input type="file" accept=".xlsx" onChange={seleccionarOc} /><b>{archivoOc?.name ?? "Elegir archivo"}</b></label>

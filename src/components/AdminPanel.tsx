@@ -80,6 +80,7 @@ export function AdminPanel() {
   const [abriendoRemitoId, setAbriendoRemitoId] = useState<string | null>(null);
 
   const ocupados = useMemo(() => turnos.filter((turno) => turno.estado !== "anulado").length, [turnos]);
+  const pendientes = useMemo(() => turnos.filter((turno) => turno.estado === "retenido").length, [turnos]);
 
   const informar = (texto: string, esError = false) => {
     setMensaje(esError ? "" : texto);
@@ -99,7 +100,7 @@ export function AdminPanel() {
   useEffect(() => {
     if (modo !== "panel" || !supabaseConfigurado) return;
     let vigente = true;
-    void consultarAgenda(fecha).then((resultado) => {
+    const actualizar = () => void consultarAgenda(fecha).then((resultado) => {
       if (!vigente) return;
       if (resultado.tieneError) {
         setError("No pudimos cargar la agenda. Verificá que el usuario tenga acceso al panel.");
@@ -108,7 +109,9 @@ export function AdminPanel() {
       if (resultado.agenda) setTurnos(resultado.agenda);
       setError("");
     });
-    return () => { vigente = false; };
+    actualizar();
+    const intervalo = window.setInterval(actualizar, 60 * 1000);
+    return () => { vigente = false; window.clearInterval(intervalo); };
   }, [fecha, modo]);
 
   const ingresar = async (evento: FormEvent<HTMLFormElement>) => {
@@ -267,6 +270,7 @@ export function AdminPanel() {
           <p className="eyebrow">Operación diaria</p>
           <h1 id="agenda-titulo">Agenda de recepción</h1>
           <p>{ocupados} de {FRANJAS.length} horarios ocupados.</p>
+          {pendientes > 0 && <p className="agenda-pending" role="status">{pendientes} turno{pendientes === 1 ? "" : "s"} pendiente{pendientes === 1 ? "" : "s"} de revisión para este día.</p>}
         </div>
         {modo === "demo" && <span className="demo-badge">Vista de prueba</span>}
       </div>
