@@ -128,11 +128,14 @@ async function requireAdmin(request) {
   try {
     decoded = JSON.parse(Buffer.from(header, "base64").toString("utf8"));
   } catch { fail("La sesión no es válida.", 401); }
+  if (!decoded || typeof decoded !== "object" || !Array.isArray(decoded.userRoles)) {
+    fail("La sesión no es válida.", 401);
+  }
   if (decoded.identityProvider !== "aad" || !decoded.userRoles?.includes("authenticated")) {
     fail("Iniciá sesión con tu cuenta de Microsoft para acceder al panel.", 401);
   }
   const allowed = new Set((process.env.ADMIN_EMAILS || "").split(",").map((email) => email.trim().toLowerCase()).filter(Boolean));
-  if (!decoded.userDetails || !allowed.has(decoded.userDetails.toLowerCase())) fail("Tu cuenta no tiene acceso al panel.", 403);
+  if (typeof decoded.userDetails !== "string" || !allowed.has(decoded.userDetails.trim().toLowerCase())) fail("Tu cuenta no tiene acceso al panel.", 403);
   return decoded;
 }
 

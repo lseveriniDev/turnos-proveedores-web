@@ -166,9 +166,13 @@ route("admin_agenda", ["GET"], async (request) => {
   await requireAdmin(request);
   const fecha = checked(request.query.get("fecha"), 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) fail("Elegí una fecha válida.");
-  const result = await db().collection("turnos").where("fecha", "==", fecha).get();
-  const agenda = result.docs.map((doc) => doc.data()).sort((a, b) => a.hora.localeCompare(b.hora));
-  return json({ agenda });
+  try {
+    const result = await db().collection("turnos").where("fecha", "==", fecha).get();
+    const agenda = result.docs.map((doc) => doc.data()).sort((a, b) => a.hora.localeCompare(b.hora));
+    return json({ agenda });
+  } catch (error) {
+    return json({ error: `No pudimos consultar la agenda: ${error instanceof Error ? error.message : "error desconocido"}` }, 500);
+  }
 });
 
 route("admin_turno", ["POST"], async (request) => {
