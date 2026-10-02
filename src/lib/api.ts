@@ -19,7 +19,7 @@ export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<
 }
 
 export async function apiRemito(id: string): Promise<Blob> {
-  const response = await fetch(`/api/admin/remito?id=${encodeURIComponent(id)}`, {
+  const response = await fetch(`/api/staff-remito?id=${encodeURIComponent(id)}`, {
     cache: "no-store",
   });
   if (!response.ok) {

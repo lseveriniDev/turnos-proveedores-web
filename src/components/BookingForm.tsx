@@ -248,8 +248,8 @@ export function BookingForm() {
       });
       setProveedorValidado(respuesta.razon_social);
       setFase("datos");
-    } catch {
-      setErrorAcceso("No pudimos validar los datos ahora. Probá nuevamente.");
+    } catch (error) {
+      setErrorAcceso(error instanceof Error ? error.message : "No pudimos validar los datos ahora. Probá nuevamente.");
     } finally {
       setValidandoAcceso(false);
     }

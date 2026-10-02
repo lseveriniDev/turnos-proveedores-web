@@ -291,7 +291,7 @@ async function prepararReporteSumma(archivoOc: File, archivoCatalogo: File): Pro
 }
 
 async function crearVistaPrevia(propuesta: PropuestaImportacion): Promise<VistaPrevia> {
-  const { ordenes: actuales } = await apiJson<{ ordenes: OrdenActual[] }>("admin/orders");
+  const { ordenes: actuales } = await apiJson<{ ordenes: OrdenActual[] }>("staff-orders");
   const actualPorNumero = new Map(actuales.map((orden) => [orden.numero.trim(), orden]));
   let nuevas = 0;
   let actualizadas = 0;
@@ -335,7 +335,7 @@ export function CsvImporter({ modoDemo, informar }: { modoDemo: boolean; informa
     if (modoDemo) return;
     let vigente = true;
     const consultar = async () => {
-      const { ordenes } = await apiJson<{ ordenes: (OrdenActual & { updated_at?: string })[] }>("admin/orders");
+      const { ordenes } = await apiJson<{ ordenes: (OrdenActual & { updated_at?: string })[] }>("staff-orders");
       if (vigente) {
         const fecha = ordenes.map((orden) => orden.updated_at).filter((value): value is string => Boolean(value)).sort().at(-1) ?? null;
         setUltimaActualizacion(fecha);
@@ -420,7 +420,7 @@ export function CsvImporter({ modoDemo, informar }: { modoDemo: boolean; informa
     setProgreso("Guardando la actualización…");
     try {
       const resultado = await apiJson<{ proveedores: number; ordenes: number; lineas: number; cerradas: number }>(
-        "admin/import",
+        "staff-import",
         { method: "POST", body: JSON.stringify({
           fuente: vistaPrevia.fuente, proveedores: vistaPrevia.proveedores, ordenes: vistaPrevia.ordenes,
           lineas: vistaPrevia.lineas, aCerrar: vistaPrevia.aCerrar,

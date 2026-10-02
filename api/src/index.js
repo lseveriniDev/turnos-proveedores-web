@@ -58,7 +58,9 @@ function errorResponse(error, context) {
 
 function route(name, methods, handler, extra = {}) {
   app.http(name, {
-    methods, authLevel: "anonymous", route: name.replace(/_/g, "/"), ...extra,
+    methods, authLevel: "anonymous",
+    route: name.startsWith("admin_") ? `staff-${name.slice(6)}` : name.replace(/_/g, "/"),
+    ...extra,
     handler: async (request, context) => {
       try { return await handler(request, context); }
       catch (error) { return errorResponse(error, context); }

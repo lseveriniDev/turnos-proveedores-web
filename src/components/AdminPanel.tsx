@@ -29,7 +29,7 @@ async function consultarAgenda(fecha: string) {
       proveedor_nombre: string; orden_compra: string; patente: string | null;
       remito?: { numero: string; sharepoint_item_id?: string | null; legacy_storage_path?: string | null; mime_type?: string | null;
         motivo_revision?: string | null; lineas_declaradas?: { renglonOc: number; cantidad: number; descripcion: string }[] | null };
-    }[] }>(`admin/agenda?fecha=${encodeURIComponent(fecha)}`);
+    }[] }>(`staff-agenda?fecha=${encodeURIComponent(fecha)}`);
     const agenda = rows.map((registro) => {
     const remito = registro.remito;
     return {
@@ -52,7 +52,7 @@ async function consultarAgenda(fecha: string) {
   } catch (error) {
     const base = error instanceof Error ? error.message : "No pudimos cargar la agenda.";
     try {
-      const diagnostico = await apiJson<{ autorizado: boolean; cuenta?: string; motivo?: string; version?: string }>("admin/health");
+      const diagnostico = await apiJson<{ autorizado: boolean; cuenta?: string; motivo?: string; version?: string }>("staff-health");
       return { agenda: null, error: diagnostico.autorizado
         ? `${base} (acceso al servidor confirmado)`
         : `${base} (${diagnostico.motivo || "sesión no validada por el servidor"}${diagnostico.cuenta ? `: ${diagnostico.cuenta}` : ""})` };
@@ -127,7 +127,7 @@ export function AdminPanel() {
       setMensaje(estado === "anulado" ? "Turno anulado y horario liberado." : "Turno marcado como en planta.");
       return;
     }
-    try { await apiJson("admin/turno", { method: "POST", body: JSON.stringify({ id, estado }) }); }
+    try { await apiJson("staff-turno", { method: "POST", body: JSON.stringify({ id, estado }) }); }
     catch {
       setError("No pudimos actualizar el turno.");
       return;
@@ -139,7 +139,7 @@ export function AdminPanel() {
   const aprobarRetenido = async (turno: TurnoAgenda) => {
     if (!window.confirm(`¿Revisaste el archivo y las cantidades del remito ${turno.remito}? Al aprobarlo se enviará la confirmación al proveedor.`)) return;
     let data: { aprobado: boolean; email_enviado: boolean };
-    try { data = await apiJson("admin/approve", { method: "POST", body: JSON.stringify({ id: turno.id }) }); }
+    try { data = await apiJson("staff-approve", { method: "POST", body: JSON.stringify({ id: turno.id }) }); }
     catch {
       setError("No pudimos aprobar el turno. Revisá el remito y volvé a intentar.");
       return;
@@ -183,7 +183,7 @@ export function AdminPanel() {
       return;
     }
     setControlAbierto({ turnoId: turno.id, lineas: [], cargando: true, error: "" });
-    const data = await apiJson<{ lineas: { descripcion_producto: string; producto_codigo: string; cantidad: number }[] }>(`admin/control?id=${encodeURIComponent(turno.id)}`).catch(() => null);
+    const data = await apiJson<{ lineas: { descripcion_producto: string; producto_codigo: string; cantidad: number }[] }>(`staff-control?id=${encodeURIComponent(turno.id)}`).catch(() => null);
     if (solicitud !== solicitudControl.current) return;
     setControlAbierto({
       turnoId: turno.id,
@@ -208,7 +208,7 @@ export function AdminPanel() {
       setMotivoBloqueo("");
       return;
     }
-    try { await apiJson("admin/block", { method: "POST", body: JSON.stringify({ fecha, hora: horaBloqueo, motivo: motivoBloqueo.trim() }) }); }
+    try { await apiJson("staff-block", { method: "POST", body: JSON.stringify({ fecha, hora: horaBloqueo, motivo: motivoBloqueo.trim() }) }); }
     catch {
       setError("No pudimos bloquear ese horario. Puede que ya tenga un turno.");
       return;
@@ -219,7 +219,7 @@ export function AdminPanel() {
 
   const descargarRespaldo = async () => {
     try {
-      const respuesta = await fetch("/api/admin/backup", { cache: "no-store" });
+      const respuesta = await fetch("/api/staff-backup", { cache: "no-store" });
       if (!respuesta.ok) throw new Error("No pudimos descargar el respaldo.");
       const url = URL.createObjectURL(await respuesta.blob());
       const enlace = document.createElement("a");
