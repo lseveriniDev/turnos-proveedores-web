@@ -54,6 +54,8 @@ El sitio se exporta a `out/`. La API está en `api/` y se publica junto al sitio
 
 El archivo histórico de Supabase se exportó a `.local/supabase-snapshot.json` (ignorado por Git). `scripts/migrate-supabase-snapshot.js` importa esos datos a Firestore de forma controlada. Mientras se copian los archivos históricos a SharePoint, el panel enlaza los remitos pendientes al portal anterior. No retirar el portal anterior hasta completar esa copia.
 
+Para copiar los archivos históricos disponibles, guardarlos como `.local/remitos/TP-00015.pdf` (usando el código de cada turno y su extensión), comprobar con `node scripts/migrate-remito-files.js --dry-run` y ejecutar el mismo comando sin `--dry-run` tras configurar `FIREBASE_SERVICE_ACCOUNT_FILE` y las variables `GRAPH_*` y `SHAREPOINT_*`. El proceso puede reanudarse: omite los turnos que ya tienen archivo en SharePoint.
+
 ## Seguridad y publicación
 
 - `firestore.rules` deniega todas las lecturas y escrituras directas; solo la API con credencial de servicio accede a los datos.
