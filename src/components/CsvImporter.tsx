@@ -1,9 +1,9 @@
 "use client";
 
-import { ChangeEvent, useState } from "react";
+import { ChangeEvent, useEffect, useState } from "react";
 import readXlsxFile from "read-excel-file/browser";
 
-import { obtenerSupabase } from "@/lib/supabase/client";
+import { apiJson } from "@/lib/api";
 
 type FilaImportacion = {
   cuit: string;
@@ -48,10 +48,17 @@ type VistaPrevia = PropuestaImportacion & {
 };
 
 type OrdenActual = { numero: string; estado: string };
-type ProveedorActual = { cuit: string; email: string | null; codigo_externo: string | null };
 
 const columnasOc = ["Segmento", "Renglon_OC", "Proveed_Id", "RazonSocial", "TipoPermi_Id", "Estado_Id", "Cantidad", "Cantidad_Recibida", "CantidadPendiente", "Moneda_Id", "Producto_id", "DescripcionProducto", "Medida_Id", "Precio", "Fecha"];
 const columnasCatalogo = ["Proveed_Id", "RazonSocial", "Cuit", "EMail"];
+const VIGENCIA_REPORTE_MS = 4 * 60 * 60 * 1000;
+
+function exigirReporteReciente(archivo: File) {
+  const antiguedad = Date.now() - archivo.lastModified;
+  if (antiguedad > VIGENCIA_REPORTE_MS || antiguedad < -5 * 60 * 1000) {
+    throw new Error("El reporte de OCs tiene más de cuatro horas o una fecha incorrecta. Exportá uno nuevo de Summa antes de actualizar.");
+  }
+}
 
 function texto(valor: unknown): string {
   if (valor === null || valor === undefined) return "";
@@ -284,11 +291,7 @@ async function prepararReporteSumma(archivoOc: File, archivoCatalogo: File): Pro
 }
 
 async function crearVistaPrevia(propuesta: PropuestaImportacion): Promise<VistaPrevia> {
-  const supabase = obtenerSupabase();
-  if (!supabase) throw new Error("No encontramos la conexión a la base de datos.");
-  const { data, error } = await supabase.from("ordenes_compra").select("numero,estado").range(0, 4999);
-  if (error) throw new Error("No pudimos consultar las OCs actuales. Verificá tu acceso al panel.");
-  const actuales = (data ?? []) as OrdenActual[];
+  const { ordenes: actuales } = await apiJson<{ ordenes: OrdenActual[] }>("staff-orders");
   const actualPorNumero = new Map(actuales.map((orden) => [orden.numero.trim(), orden]));
   let nuevas = 0;
   let actualizadas = 0;
@@ -325,6 +328,24 @@ export function CsvImporter({ modoDemo, informar }: { modoDemo: boolean; informa
   const [aviso, setAviso] = useState("");
   const [errorLocal, setErrorLocal] = useState("");
   const [progreso, setProgreso] = useState("");
+  const [ultimaActualizacion, setUltimaActualizacion] = useState<string | null>(null);
+  const [cargaVencida, setCargaVencida] = useState(false);
+
+  useEffect(() => {
+    if (modoDemo) return;
+    let vigente = true;
+    const consultar = async () => {
+      const { ordenes } = await apiJson<{ ordenes: (OrdenActual & { updated_at?: string })[] }>("staff-orders");
+      if (vigente) {
+        const fecha = ordenes.map((orden) => orden.updated_at).filter((value): value is string => Boolean(value)).sort().at(-1) ?? null;
+        setUltimaActualizacion(fecha);
+        setCargaVencida(Boolean(fecha && Date.now() - new Date(fecha).getTime() > VIGENCIA_REPORTE_MS));
+      }
+    };
+    void consultar();
+    const intervalo = window.setInterval(() => void consultar(), 5 * 60 * 1000);
+    return () => { vigente = false; window.clearInterval(intervalo); };
+  }, [modoDemo]);
 
   const notificar = (texto: string, esError = false) => {
     setAviso(esError ? "" : texto);
@@ -346,6 +367,7 @@ export function CsvImporter({ modoDemo, informar }: { modoDemo: boolean; informa
     notificar("");
     setProgreso("Leyendo las planillas de Summa…");
     try {
+      exigirReporteReciente(archivoOc);
       const propuesta = await prepararReporteSumma(archivoOc, archivoCatalogo);
       setProgreso("Comparando las OCs con la agenda actual…");
       setVistaPrevia(modoDemo ? crearVistaPreviaDemo(propuesta) : await crearVistaPrevia(propuesta));
@@ -381,6 +403,10 @@ export function CsvImporter({ modoDemo, informar }: { modoDemo: boolean; informa
 
   const confirmarImportacion = async () => {
     if (!vistaPrevia) return;
+    if (vistaPrevia.fuente === "summa" && archivoOc) {
+      try { exigirReporteReciente(archivoOc); }
+      catch (error) { notificar(error instanceof Error ? error.message : "Exportá un reporte nuevo de Summa.", true); return; }
+    }
     if (vistaPrevia.aCerrar.length && !confirmarCierre) {
       notificar("Confirmá el cierre de OCs antes de aplicar esta actualización.", true);
       return;
@@ -389,82 +415,22 @@ export function CsvImporter({ modoDemo, informar }: { modoDemo: boolean; informa
       notificar(`Vista de prueba: se revisarían ${vistaPrevia.proveedores.length} proveedores y ${vistaPrevia.ordenes.length} OCs.`);
       return;
     }
-    const supabase = obtenerSupabase();
-    if (!supabase) {
-      notificar("No encontramos la conexión a la base de datos.", true);
-      return;
-    }
     setOcupado(true);
     notificar("");
     setProgreso("Guardando la actualización…");
     try {
-      const cuits = vistaPrevia.proveedores.map((proveedor) => proveedor.cuit);
-      const { data: proveedoresExistentes, error: errorExistentes } = await supabase
-        .from("proveedores")
-        .select("cuit,email,codigo_externo")
-        .in("cuit", cuits);
-      if (errorExistentes) throw new Error("No pudimos consultar los proveedores existentes.");
-      const existentePorCuit = new Map(((proveedoresExistentes ?? []) as ProveedorActual[]).map((proveedor) => [proveedor.cuit, proveedor]));
-      const { data: proveedoresGuardados, error: errorProveedores } = await supabase
-        .from("proveedores")
-        .upsert(vistaPrevia.proveedores.map((proveedor) => {
-          const existente = existentePorCuit.get(proveedor.cuit);
-          return {
-            cuit: proveedor.cuit,
-            razon_social: proveedor.razon_social,
-            email: proveedor.email || existente?.email || null,
-            codigo_externo: proveedor.codigo_externo || existente?.codigo_externo || null,
-            habilitado: true,
-          };
-        }), { onConflict: "cuit" })
-        .select("id,cuit");
-      if (errorProveedores || !proveedoresGuardados) throw new Error("No pudimos actualizar los proveedores.");
-      const idPorCuit = new Map((proveedoresGuardados as { id: string; cuit: string }[]).map((proveedor) => [proveedor.cuit, proveedor.id]));
-      const { data: ordenesGuardadas, error: errorOrdenes } = await supabase
-        .from("ordenes_compra")
-        .upsert(vistaPrevia.ordenes.map((orden) => ({
-          numero: orden.orden_compra,
-          proveedor_id: idPorCuit.get(orden.cuit),
-          estado: "abierta",
-          ...(orden.fecha ? { fecha: orden.fecha } : {}),
-        })), { onConflict: "numero" })
-        .select("id,numero");
-      if (errorOrdenes || !ordenesGuardadas) throw new Error("No pudimos actualizar las órdenes de compra.");
-      let lineasActualizadas = 0;
-      let controlDetalladoPendiente = false;
-      if (vistaPrevia.lineas.length) {
-        const idPorNumero = new Map((ordenesGuardadas as { id: string; numero: string }[]).map((orden) => [orden.numero, orden.id]));
-        const lineasParaGuardar = vistaPrevia.lineas.map((linea) => {
-          const ordenCompraId = idPorNumero.get(linea.orden_compra);
-          if (!ordenCompraId) throw new Error(`No encontramos la OC ${linea.orden_compra} después de actualizarla.`);
-          return { ...linea, orden_compra_id: ordenCompraId };
-        });
-        const { error: errorLineas } = await supabase
-          .from("lineas_orden_compra")
-          .upsert(lineasParaGuardar.map((linea) => ({
-            orden_compra_id: linea.orden_compra_id,
-            renglon: linea.renglon,
-            producto_codigo: linea.producto_codigo,
-            descripcion_producto: linea.descripcion_producto,
-            unidad_medida: linea.unidad_medida,
-            moneda: linea.moneda,
-            cantidad_ordenada: linea.cantidad_ordenada,
-            cantidad_recibida: linea.cantidad_recibida,
-            cantidad_pendiente: linea.cantidad_pendiente,
-            precio_unitario: linea.precio_unitario,
-          })), { onConflict: "orden_compra_id,renglon" });
-        if (errorLineas) {
-          if (errorLineas.code === "42P01" || errorLineas.code === "PGRST205") controlDetalladoPendiente = true;
-          else throw new Error(`Actualizamos las OCs, pero no pudimos guardar su detalle por renglón (${errorLineas.code ?? "sin código"}: ${errorLineas.message}).`);
-        } else {
-          lineasActualizadas = lineasParaGuardar.length;
-        }
+      const resultado = await apiJson<{ proveedores: number; ordenes: number; lineas: number; cerradas: number }>(
+        "staff-import",
+        { method: "POST", body: JSON.stringify({
+          fuente: vistaPrevia.fuente, proveedores: vistaPrevia.proveedores, ordenes: vistaPrevia.ordenes,
+          lineas: vistaPrevia.lineas, aCerrar: vistaPrevia.aCerrar,
+        }) }
+      );
+      notificar(`Actualización lista: ${resultado.proveedores} proveedores, ${resultado.ordenes} OCs y ${resultado.lineas} renglones procesados${resultado.cerradas ? `; ${resultado.cerradas} OCs cerradas.` : "."}`);
+      if (vistaPrevia.fuente === "summa") {
+        setUltimaActualizacion(new Date().toISOString());
+        setCargaVencida(false);
       }
-      if (vistaPrevia.aCerrar.length) {
-        const { error: errorCierre } = await supabase.from("ordenes_compra").update({ estado: "cerrada" }).in("numero", vistaPrevia.aCerrar);
-        if (errorCierre) throw new Error("Actualizamos las OCs vigentes, pero no pudimos cerrar las que ya no están en el reporte.");
-      }
-      notificar(`Actualización lista: ${vistaPrevia.proveedores.length} proveedores y ${vistaPrevia.ordenes.length} OCs procesadas${lineasActualizadas ? `; ${lineasActualizadas} renglones actualizados.` : ""}${controlDetalladoPendiente ? "; el detalle por renglón se activará cuando apliques la migración pendiente." : ""}${vistaPrevia.aCerrar.length ? `; ${vistaPrevia.aCerrar.length} OCs cerradas.` : "."}`);
       limpiarVista();
     } catch (error) {
       notificar(error instanceof Error ? error.message : "No pudimos aplicar la actualización.", true);
@@ -493,6 +459,10 @@ export function CsvImporter({ modoDemo, informar }: { modoDemo: boolean; informa
         <p className="eyebrow">Sincronización Summa</p>
         <h2 id="importacion-titulo">Actualizar proveedores y OCs</h2>
         <p>Elegí las dos exportaciones originales. Primero vas a ver qué se dará de alta, actualizará o cerrará; nada cambia hasta confirmarlo.</p>
+        {!modoDemo && ultimaActualizacion && <p className={cargaVencida ? "sync-age stale" : "sync-age"}>
+          Último cambio registrado en OCs: {new Intl.DateTimeFormat("es-AR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Argentina/Buenos_Aires" }).format(new Date(ultimaActualizacion))}.
+          {cargaVencida && " Pasaron más de cuatro horas: actualizá Summa antes de usar estos datos para nuevas entregas."}
+        </p>}
       </div>
       <div className="import-actions">
         <label className="file-picker"><span>Reporte de OCs (.xlsx)</span><input type="file" accept=".xlsx" onChange={seleccionarOc} /><b>{archivoOc?.name ?? "Elegir archivo"}</b></label>

@@ -1,52 +1,66 @@
-# Turnos de proveedores
+# Turnos de proveedores · Göttert
 
-Portal público de reservas y panel de recepción de Göttert. El sitio es una exportación estática de Next.js publicada en Cloudflare Pages. Supabase guarda los datos, los remitos privados y las cuentas del panel; la Edge Function `crear-reserva` gestiona las reservas.
+Portal de reservas y agenda de recepción. La versión nueva usa Azure Static Web Apps para el sitio y la API, Cloud Firestore para los datos y SharePoint para los PDF e imágenes de remitos. El acceso al panel usa la cuenta Microsoft 365 y una lista explícita de administradores. GitHub Actions publica los cambios de la rama `firebase-azure-migration`.
 
-## Estado y direcciones
+## Estado del portal (02/10/2026)
 
-- Portal: <https://turnos-proveedores-gottert.pages.dev/>
-- Panel: <https://turnos-proveedores-gottert.pages.dev/panel/>
-- Proyecto Supabase: `turnos-proveedores` (`ppcyiiiqzwzkayjklopv`).
-- La publicación en Pages es manual (Direct Upload). El repositorio no está conectado a Pages para publicar automáticamente.
+- Portal Azure publicado: <https://green-forest-0f3977b0f.2.azurestaticapps.net/>.
+- Panel interno: <https://green-forest-0f3977b0f.2.azurestaticapps.net/panel/> (inicio de sesión Microsoft 365).
+- Portal anterior disponible como respaldo: <https://turnos-proveedores-gottert.pages.dev/>.
+- Firebase: proyecto `turnos-proveedores-gottert`, Firestore `southamerica-east1`, plan Spark.
+- SharePoint: `GOTTERT / Shared Documents / 05-Suministros / 1. Compras / 3. Registros / Turnos Proveedores`.
+- Se probó una reserva completa con OC abierta: archivo en SharePoint y correo entregado. El turno de prueba se anuló y el horario quedó libre. Los remitos anteriores fueron pruebas, según confirmó el equipo.
+- Las exportaciones de Summa del 02/10 quedaron cargadas: 60 proveedores y 78 OCs en la base, 64 abiertas. Cuatro OCs de dos proveedores ausentes del catálogo quedaron fuera de la oferta de turnos por decisión del equipo.
 
-## Desarrollo local
+## Cómo funciona
 
-1. Instalá las dependencias con `npm ci`.
-2. Copiá `.env.example` a `.env.local` y verificá la URL y la Publishable key de Supabase.
-3. Ejecutá `npm run dev` y abrí <http://localhost:3000/>.
+El proveedor valida CUIT y OC abierta, adjunta un PDF o imagen de hasta 10 MB y el navegador intenta reconocer los renglones. Si el acumulado supera el 110% de algún renglón de la OC, no puede continuar. Las entregas parciales se permiten. Lecturas dudosas ocupan el horario y quedan pendientes de revisión interna. En el panel se muestra una lista informativa de los productos detectados y el remito original. No se edita la OC desde recepción.
 
-Sin `.env.local`, las pantallas funcionan en modo de demostración y no guardan datos. Nunca pongas una Secret key o una service role key en un archivo `NEXT_PUBLIC_`.
+La API de Azure valida nuevamente la OC, la cantidad, el horario y la unicidad del remito por proveedor. Guarda el archivo en SharePoint dentro de `Turnos Proveedores/{CUIT - Proveedor}/{OC}/{Remito}_{Fecha}_{ID}.{ext}`. Una transacción de Firestore crea el turno y bloquea el horario. Si no se puede crear, intenta retirar el archivo recién subido.
 
-## Base de datos y permisos
+El panel usa el inicio de sesión de Microsoft 365 de Azure Static Web Apps. Además, `ADMIN_EMAILS` limita el acceso a las cuentas autorizadas. Las reglas de Firestore no permiten acceso directo desde el navegador.
 
-Las definiciones están en `supabase/migrations/`. Las primeras migraciones se aplicaron manualmente al proyecto existente; verificá el esquema antes de aplicarlas en una base nueva. La migración `restringir_creacion_publica_turnos` revoca la ejecución pública de `crear_turno_publico`: la reserva debe pasar por la Edge Function, que la ejecuta con la clave de servicio. Aplicá esta migración **después** de publicar el portal que invoca la Edge Function; el sitio anterior llama a la función SQL directamente.
+## Operación diaria de Summa
 
-El panel requiere un usuario de Supabase Auth con una fila `profiles` cuyo `rol` sea `administrador`. Las reglas de acceso de la base protegen las tablas del panel.
+Exportá el reporte completo de OCs y el catálogo de proveedores dos o tres veces al día. En el panel, seleccioná ambas planillas, revisá la vista previa y confirmá. La importación crea o actualiza proveedores, OCs y sus renglones; solicita confirmación para cerrar OCs que desaparecieron del reporte. El CSV sirve para una carga parcial y no cierra OCs.
 
-## Reserva de un proveedor
+Si el panel no permite importar, `scripts/sync-summa-firebase.js` ofrece un respaldo operativo. Requiere una cuenta de servicio privada en `FIREBASE_SERVICE_ACCOUNT_FILE`; primero se ejecuta en modo de revisión y solo `--apply` escribe los cambios. No usar una exportación de más de cuatro horas.
 
-1. El proveedor valida CUIT y OC abierta.
-2. Adjunta el remito. El navegador lee automáticamente el PDF o la foto y compara sus renglones con la OC. El proveedor solo ve el resultado general; no revisa ni modifica el análisis. Si una cantidad reconocida supera el 110% acumulado permitido, se informa el bloqueo y no puede continuar.
-3. La Edge Function vuelve a validar las cantidades detectadas antes de reservar y rechaza cualquier exceso comprobado. Las entregas parciales se permiten. Descripciones que no coinciden, lecturas de baja confianza, archivos incompletos o sin renglones comprobables pasan a revisión interna.
-4. La Edge Function crea el turno en estado `reservado` y entrega una URL de carga firmada. El navegador sube el remito al bucket privado.
-5. Tras comprobar la carga, el turno pasa a `confirmado` o `retenido`. El proveedor recibe un correo que distingue confirmación de solicitud pendiente. Recepción puede ver el archivo y los renglones detectados en la agenda, aprobar un turno retenido y enviar la confirmación.
+El botón **Descargar respaldo** guarda un JSON con proveedores, OCs, turnos y bloqueos. Los archivos de remito permanecen en SharePoint. Descargá un respaldo al menos una vez por día hasta automatizar la copia.
 
-La lectura y la selección automática de productos ocurren en el navegador del proveedor, sin mostrar el detalle. Las cantidades enviadas se comprueban de nuevo contra la OC en el servidor, pero el servidor no extrae el contenido del PDF por su cuenta: las lecturas dudosas requieren revisión humana. Un turno `retenido` ocupa el horario hasta que recepción lo apruebe o anule. La regla del paquete original era ±10% sobre el acumulado de cada renglón; aquí se conserva el límite superior del 110% y se permiten entregas parciales, según la decisión operativa actual.
+## Variables privadas de Azure
 
-Si falla la carga, el portal intenta anular el turno para liberar el horario. Si la confirmación o el correo falla después de subir el remito, muestra el código y pide comunicarse con recepción. El correo requiere los secretos `RESEND_API_KEY` y `RESEND_FROM` en la Edge Function; `RESEND_FROM` debe usar un dominio verificado. La URL y la clave de servicio de Supabase se proporcionan al entorno de la función, nunca al navegador.
+Configurar en **Static Web App → Environment variables**:
 
-## Importación desde Summa
+| Variable | Uso |
+| --- | --- |
+| `FIREBASE_PROJECT_ID` | `turnos-proveedores-gottert` |
+| `FIREBASE_SERVICE_ACCOUNT_B64` | JSON de una cuenta de servicio de Firestore, codificado en Base64 |
+| `ADMIN_EMAILS` | Correos del equipo autorizados, separados por coma |
+| `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET` | Aplicación de Microsoft Graph para guardar remitos |
+| `SHAREPOINT_DRIVE_ID`, `SHAREPOINT_FOLDER_ID` | Biblioteca y carpeta raíz de remitos |
+| `RESEND_API_KEY`, `MAIL_FROM` | Correo de confirmación desde el dominio verificado |
 
-En el panel, elegí el reporte de OCs y el catálogo de proveedores en formato `.xlsx`, revisá la vista previa y confirmá la actualización. Si hay OCs para cerrar, el panel exige confirmar ese cierre. La importación carga también los renglones de las OCs, necesarios para el control detallado de recepción. Un CSV preparado sirve para una carga parcial y no cierra OCs.
+Nunca subir esas claves al repositorio. El token de publicación de Azure se guarda como secreto de GitHub `AZURE_STATIC_WEB_APPS_API_TOKEN`.
 
-La importación hace varias operaciones consecutivas en la base. Si alguna falla, revisá el mensaje y la cantidad de proveedores, OCs y renglones antes de repetirla.
+## Desarrollo y pruebas
 
-## Verificación y publicación
+```powershell
+npm ci
+npm run build
+npm run lint
+cd api
+npm ci
+npm test
+```
 
-1. Ejecutá `npm run lint`, `npx deno check supabase/functions/crear-reserva/index.ts` y `npm run build`.
-2. Desplegá la Edge Function `crear-reserva` en Supabase con `verify_jwt = false` (portal público).
-3. Ejecutá `npm run deploy` para publicar la carpeta `out` en el proyecto existente de Cloudflare Pages.
-4. Aplicá la migración de restricción de permisos y verificá que `anon` y `authenticated` ya no puedan ejecutar `crear_turno_publico`, pero `service_role` sí.
-5. Probá una reserva completa con un proveedor y una OC de prueba: archivo, correo, agenda, vista del remito, llegada y anulación.
+El sitio se exporta a `out/`. La API está en `api/` y se publica junto al sitio. Para probarla localmente se necesita Azure Static Web Apps CLI y un `api/local.settings.json` privado con las mismas variables.
 
-En la agenda, «Control» despliega debajo del turno una lista informativa de los productos y cantidades detectados en el remito. Para turnos anteriores sin lectura guardada, usa los renglones del remito registrados en el panel; si tampoco existen, recepción puede abrir el archivo original con «Ver remito». La consulta no modifica ni cierra la OC.
+El archivo histórico de Supabase se exportó a `.local/supabase-snapshot.json` (ignorado por Git). `scripts/migrate-supabase-snapshot.js` permite restaurarlo de forma controlada si hiciera falta. Los remitos de la versión anterior eran de prueba; no requieren copia operativa a SharePoint.
+
+## Seguridad y publicación
+
+- `firestore.rules` deniega todas las lecturas y escrituras directas; solo la API con credencial de servicio accede a los datos.
+- `public/staticwebapp.config.json` exige inicio de sesión para `/api/staff-*`; la API también comprueba el correo autorizado.
+- El flujo de GitHub publica la rama `firebase-azure-migration` en el sitio Azure. La dirección anterior permanece separada.
+- El panel y el respaldo se verificaron con la cuenta autorizada. Antes de abrirlo a todos los proveedores, conviene que recepción haga una reserva propia y confirme su procedimiento de aprobación, llegada y anulación.

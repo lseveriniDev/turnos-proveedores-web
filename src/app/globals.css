@@ -137,6 +137,8 @@ h2 { margin-bottom: 0.45rem; font-size: 1.55rem; letter-spacing: -0.04em; line-h
 .agenda { padding: clamp(1.25rem, 3vw, 2.25rem); }
 .agenda-heading h1 { max-width: none; margin: 0.2rem 0 0.38rem; font-size: clamp(2rem, 4vw, 3.25rem); }
 .agenda-heading p:not(.eyebrow) { margin: 0; color: var(--ink-soft); }
+.agenda-heading .session-account { padding-top: 0.4rem; font-size: 0.78rem; }
+.agenda-heading .agenda-pending { margin-top: 0.45rem; color: #8b5d0b; font-weight: 700; }
 .agenda-toolbar { display: flex; align-items: end; gap: 1rem; margin-bottom: 1.35rem; padding: 1rem 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .agenda-toolbar .field { width: 10rem; flex: 0 0 auto; }
 .selected-date { flex: 1; margin: 0 0 0.35rem; color: var(--ink-soft); font-size: 0.91rem; text-transform: capitalize; }
@@ -162,6 +164,8 @@ td small { margin-top: 0.1rem; color: var(--ink-soft); font-size: 0.77rem; }
 .import-card { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 1.1rem 1.4rem; margin-top: 1.55rem; padding: 1.05rem 1.2rem; background: #f3f7f6; border: 1px solid var(--line); border-radius: 0.75rem; }
 .import-card h2 { margin-bottom: 0.18rem; font-size: 1.03rem; }
 .import-card p:not(.eyebrow) { max-width: 36rem; margin: 0; color: var(--ink-soft); font-size: 0.84rem; }
+.import-card .sync-age { margin-top: 0.55rem; font-size: 0.78rem; }
+.import-card .sync-age.stale { color: #8b5d0b; font-weight: 700; }
 .import-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 0.55rem; justify-content: flex-end; }
 .import-actions .secondary-button { margin: 0; }
 .import-actions > a { color: var(--teal-dark); font-size: 0.82rem; font-weight: 700; text-underline-offset: 0.2rem; }
