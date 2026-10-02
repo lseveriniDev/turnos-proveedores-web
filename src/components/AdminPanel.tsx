@@ -48,12 +48,15 @@ async function consultarAgenda(fecha: string) {
       estado: registro.estado,
     } satisfies TurnoAgenda;
   });
-    return { agenda, tieneError: false };
-  } catch { return { agenda: null, tieneError: true }; }
+    return { agenda, error: null };
+  } catch (error) {
+    return { agenda: null, error: error instanceof Error ? error.message : "No pudimos cargar la agenda." };
+  }
 }
 
 export function AdminPanel() {
   const [modo, setModo] = useState<Modo>(apiConfigurada ? "acceso" : "demo");
+  const [cuenta, setCuenta] = useState<string | null>(null);
   const [fecha, setFecha] = useState(fechaArgentina);
   const [turnos, setTurnos] = useState<TurnoAgenda[]>(apiConfigurada ? [] : DEMO_AGENDA);
   const [mensaje, setMensaje] = useState("");
@@ -69,7 +72,7 @@ export function AdminPanel() {
   const pendientes = useMemo(() => turnos.filter((turno) => turno.estado === "retenido").length, [turnos]);
 
   useEffect(() => {
-    void usuarioActual().then((user) => { if (user) setModo("panel"); }).catch(() => {});
+    void usuarioActual().then((user) => { if (user) { setCuenta(user.userDetails); setModo("panel"); } }).catch(() => {});
   }, []);
 
   const informar = (texto: string, esError = false) => {
@@ -79,8 +82,8 @@ export function AdminPanel() {
 
   const cargarAgenda = async () => {
     const resultado = await consultarAgenda(fecha);
-    if (resultado.tieneError) {
-      setError("No pudimos cargar la agenda. Verificá que el usuario tenga acceso al panel.");
+    if (resultado.error) {
+      setError(resultado.error);
       return;
     }
     if (resultado.agenda) setTurnos(resultado.agenda);
@@ -93,12 +96,12 @@ export function AdminPanel() {
     let reintento: number | null = null;
     const actualizar = (reintentar = true): void => { void consultarAgenda(fecha).then((resultado) => {
       if (!vigente) return;
-      if (resultado.tieneError) {
+      if (resultado.error) {
         if (reintentar) {
           reintento = window.setTimeout(() => actualizar(false), 1500);
           return;
         }
-        setError("No pudimos cargar la agenda. Verificá que el usuario tenga acceso al panel.");
+        setError(resultado.error);
         return;
       }
       if (resultado.agenda) setTurnos(resultado.agenda);
@@ -237,6 +240,7 @@ export function AdminPanel() {
           <p className="eyebrow">Operación diaria</p>
           <h1 id="agenda-titulo">Agenda de recepción</h1>
           <p>{ocupados} de {FRANJAS.length} horarios ocupados.</p>
+          {cuenta && <p className="session-account">Sesión: {cuenta} · <a href="/.auth/logout?post_logout_redirect_uri=/panel/">Cambiar cuenta</a></p>}
           {pendientes > 0 && <p className="agenda-pending" role="status">{pendientes} turno{pendientes === 1 ? "" : "s"} pendiente{pendientes === 1 ? "" : "s"} de revisión para este día.</p>}
         </div>
         {modo === "demo" ? <span className="demo-badge">Vista de prueba</span> :
