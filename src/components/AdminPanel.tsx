@@ -4,7 +4,7 @@ import { FormEvent, Fragment, useEffect, useMemo, useRef, useState } from "react
 
 import { CsvImporter } from "@/components/CsvImporter";
 import { DEMO_AGENDA, EstadoTurno, FRANJAS, TurnoAgenda, fechaArgentina, textoFecha } from "@/lib/domain";
-import { obtenerSupabase, supabaseConfigurado } from "@/lib/supabase/client";
+import { apiConfigurada, apiJson, apiRemito, usuarioActual } from "@/lib/api";
 
 type Modo = "acceso" | "demo" | "panel";
 type LineaControl = { descripcion: string; cantidad: number; codigo?: string };
@@ -23,37 +23,23 @@ const etiquetaEstado: Record<EstadoTurno, string> = {
 };
 
 async function consultarAgenda(fecha: string) {
-  const supabase = obtenerSupabase();
-  if (!supabase) return { agenda: null, tieneError: false };
-
-  const inicio = `${fecha}T00:00:00-03:00`;
-  const siguiente = new Date(`${fecha}T12:00:00-03:00`);
-  siguiente.setDate(siguiente.getDate() + 1);
-  const hasta = `${siguiente.getFullYear()}-${String(siguiente.getMonth() + 1).padStart(2, "0")}-${String(siguiente.getDate()).padStart(2, "0")}T00:00:00-03:00`;
-  const { data, error } = await supabase
-    .from("turnos")
-    .select("id,codigo,inicio,estado,patente,proveedores(razon_social),ordenes_compra(numero),remitos(numero,storage_path,mime_type,motivo_revision,lineas_declaradas)")
-    .gte("inicio", inicio)
-    .lt("inicio", hasta)
-    .order("inicio");
-
-  if (error) return { agenda: null, tieneError: true };
-
-  const agenda = (data ?? []).map((fila) => {
-    const registro = fila as unknown as {
-      id: string; codigo: string; inicio: string; estado: EstadoTurno; patente: string | null;
-      proveedores: { razon_social: string } | null; ordenes_compra: { numero: string } | null;
-      remitos: { numero: string; storage_path: string | null; mime_type: string | null; motivo_revision: string | null; lineas_declaradas: { renglonOc: number; cantidad: number; descripcion: string }[] | null }[] | { numero: string; storage_path: string | null; mime_type: string | null; motivo_revision: string | null; lineas_declaradas: { renglonOc: number; cantidad: number; descripcion: string }[] | null } | null;
-    };
-    const remito = Array.isArray(registro.remitos) ? registro.remitos[0] : registro.remitos;
+  try {
+    const { agenda: rows } = await apiJson<{ agenda: {
+      id: string; codigo: string; inicio: string; hora: string; estado: EstadoTurno;
+      proveedor_nombre: string; orden_compra: string; patente: string | null;
+      remito?: { numero: string; sharepoint_item_id?: string | null; mime_type?: string | null;
+        motivo_revision?: string | null; lineas_declaradas?: { renglonOc: number; cantidad: number; descripcion: string }[] | null };
+    }[] }>(`admin/agenda?fecha=${encodeURIComponent(fecha)}`);
+    const agenda = rows.map((registro) => {
+    const remito = registro.remito;
     return {
       id: registro.id,
       codigo: registro.codigo,
-      hora: new Intl.DateTimeFormat("es-AR", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/Argentina/Buenos_Aires" }).format(new Date(registro.inicio)),
-      proveedor: registro.proveedores?.razon_social ?? "Proveedor",
-      ordenCompra: registro.ordenes_compra?.numero ?? "—",
+      hora: registro.hora,
+      proveedor: registro.proveedor_nombre ?? "Proveedor",
+      ordenCompra: registro.orden_compra ?? "—",
       remito: remito?.numero ?? "—",
-      rutaRemito: remito?.storage_path ?? null,
+      rutaRemito: remito?.sharepoint_item_id ?? null,
       tipoRemito: remito?.mime_type ?? null,
       motivoRevision: remito?.motivo_revision ?? null,
       lineasDeclaradas: remito?.lineas_declaradas ?? null,
@@ -61,15 +47,14 @@ async function consultarAgenda(fecha: string) {
       estado: registro.estado,
     } satisfies TurnoAgenda;
   });
-  return { agenda, tieneError: false };
+    return { agenda, tieneError: false };
+  } catch { return { agenda: null, tieneError: true }; }
 }
 
 export function AdminPanel() {
-  const [modo, setModo] = useState<Modo>(supabaseConfigurado ? "acceso" : "demo");
-  const [email, setEmail] = useState("");
-  const [clave, setClave] = useState("");
+  const [modo, setModo] = useState<Modo>(apiConfigurada ? "acceso" : "demo");
   const [fecha, setFecha] = useState(fechaArgentina);
-  const [turnos, setTurnos] = useState<TurnoAgenda[]>(supabaseConfigurado ? [] : DEMO_AGENDA);
+  const [turnos, setTurnos] = useState<TurnoAgenda[]>(apiConfigurada ? [] : DEMO_AGENDA);
   const [mensaje, setMensaje] = useState("");
   const [error, setError] = useState("");
   const [horaBloqueo, setHoraBloqueo] = useState("08:00");
@@ -81,6 +66,10 @@ export function AdminPanel() {
 
   const ocupados = useMemo(() => turnos.filter((turno) => turno.estado !== "anulado").length, [turnos]);
   const pendientes = useMemo(() => turnos.filter((turno) => turno.estado === "retenido").length, [turnos]);
+
+  useEffect(() => {
+    void usuarioActual().then((user) => { if (user) setModo("panel"); }).catch(() => {});
+  }, []);
 
   const informar = (texto: string, esError = false) => {
     setMensaje(esError ? "" : texto);
@@ -98,7 +87,7 @@ export function AdminPanel() {
   };
 
   useEffect(() => {
-    if (modo !== "panel" || !supabaseConfigurado) return;
+    if (modo !== "panel" || !apiConfigurada) return;
     let vigente = true;
     let reintento: number | null = null;
     const actualizar = (reintentar = true): void => { void consultarAgenda(fecha).then((resultado) => {
@@ -119,32 +108,14 @@ export function AdminPanel() {
     return () => { vigente = false; window.clearInterval(intervalo); if (reintento !== null) window.clearTimeout(reintento); };
   }, [fecha, modo]);
 
-  const ingresar = async (evento: FormEvent<HTMLFormElement>) => {
-    evento.preventDefault();
-    const supabase = obtenerSupabase();
-    if (!supabase) {
-      setModo("demo");
-      return;
-    }
-    setError("");
-    const { error: errorIngreso } = await supabase.auth.signInWithPassword({ email, password: clave });
-    if (errorIngreso) {
-      setError("No pudimos iniciar sesión. Revisá el correo y la contraseña.");
-      return;
-    }
-    setModo("panel");
-  };
-
   const cambiarEstado = async (id: string, estado: EstadoTurno) => {
     if (modo === "demo") {
       setTurnos((actuales) => actuales.map((turno) => turno.id === id ? { ...turno, estado } : turno));
       setMensaje(estado === "anulado" ? "Turno anulado y horario liberado." : "Turno marcado como en planta.");
       return;
     }
-    const supabase = obtenerSupabase();
-    if (!supabase) return;
-    const { error: errorActualizacion } = await supabase.from("turnos").update({ estado }).eq("id", id);
-    if (errorActualizacion) {
+    try { await apiJson("admin/turno", { method: "POST", body: JSON.stringify({ id, estado }) }); }
+    catch {
       setError("No pudimos actualizar el turno.");
       return;
     }
@@ -154,16 +125,13 @@ export function AdminPanel() {
 
   const aprobarRetenido = async (turno: TurnoAgenda) => {
     if (!window.confirm(`¿Revisaste el archivo y las cantidades del remito ${turno.remito}? Al aprobarlo se enviará la confirmación al proveedor.`)) return;
-    const supabase = obtenerSupabase();
-    if (!supabase) return;
-    const { data, error: errorAprobacion } = await supabase.functions.invoke("crear-reserva", {
-      body: { accion: "aprobar", turno_id: turno.id },
-    });
-    if (errorAprobacion || !(data as { aprobado?: boolean } | null)?.aprobado) {
+    let data: { aprobado: boolean; email_enviado: boolean };
+    try { data = await apiJson("admin/approve", { method: "POST", body: JSON.stringify({ id: turno.id }) }); }
+    catch {
       setError("No pudimos aprobar el turno. Revisá el remito y volvé a intentar.");
       return;
     }
-    setMensaje((data as { email_enviado?: boolean }).email_enviado ? "Turno aprobado y correo de confirmación enviado." : "Turno aprobado. El correo no pudo enviarse; informá al proveedor.");
+    setMensaje(data.email_enviado ? "Turno aprobado y correo de confirmación enviado." : "Turno aprobado. El correo no pudo enviarse; informá al proveedor.");
     await cargarAgenda();
   };
 
@@ -172,16 +140,14 @@ export function AdminPanel() {
       setMensaje("En la vista de prueba el archivo de remito todavía no está disponible.");
       return;
     }
-    const supabase = obtenerSupabase();
-    if (!supabase) return;
     setAbriendoRemitoId(turno.id);
-    const { data, error: errorUrl } = await supabase.storage.from("remitos").createSignedUrl(turno.rutaRemito, 300);
-    setAbriendoRemitoId(null);
-    if (errorUrl || !data) {
-      setError("No pudimos preparar la vista previa del remito.");
-      return;
-    }
-    setVistaRemito({ turno, url: data.signedUrl });
+    try {
+      const blob = await apiRemito(turno.id);
+      if (vistaRemito) URL.revokeObjectURL(vistaRemito.url);
+      setVistaRemito({ turno, url: URL.createObjectURL(blob) });
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "No pudimos preparar la vista previa del remito.");
+    } finally { setAbriendoRemitoId(null); }
   };
 
   const alternarControl = async (turno: TurnoAgenda) => {
@@ -199,29 +165,17 @@ export function AdminPanel() {
       return;
     }
     setControlAbierto({ turnoId: turno.id, lineas: [], cargando: true, error: "" });
-    const supabase = obtenerSupabase();
-    if (!supabase) {
-      setControlAbierto({ turnoId: turno.id, lineas: [], cargando: false, error: "No pudimos cargar los productos del remito." });
-      return;
-    }
-    const { data: remito, error: errorRemito } = await supabase.from("remitos").select("id").eq("turno_id", turno.id).maybeSingle();
-    if (solicitud !== solicitudControl.current) return;
-    if (errorRemito || !remito) {
-      setControlAbierto({ turnoId: turno.id, lineas: [], cargando: false, error: "No pudimos cargar los productos del remito." });
-      return;
-    }
-    const { data, error: errorLineas } = await supabase.from("lineas_remito")
-      .select("descripcion_producto,producto_codigo,cantidad").eq("remito_id", remito.id).order("renglon");
+    const data = await apiJson<{ lineas: { descripcion_producto: string; producto_codigo: string; cantidad: number }[] }>(`admin/control?id=${encodeURIComponent(turno.id)}`).catch(() => null);
     if (solicitud !== solicitudControl.current) return;
     setControlAbierto({
       turnoId: turno.id,
-      lineas: (data ?? []).map((linea) => ({
+      lineas: (data?.lineas ?? []).map((linea) => ({
         descripcion: linea.descripcion_producto || linea.producto_codigo,
         cantidad: Number(linea.cantidad),
         codigo: linea.producto_codigo,
       })),
       cargando: false,
-      error: errorLineas ? "No pudimos cargar los productos del remito." : "",
+      error: data ? "" : "No pudimos cargar los productos del remito.",
     });
   };
 
@@ -236,15 +190,8 @@ export function AdminPanel() {
       setMotivoBloqueo("");
       return;
     }
-    const supabase = obtenerSupabase();
-    if (!supabase) return;
-    const horaFinal = `${String(Number(horaBloqueo.slice(0, 2)) + 1).padStart(2, "0")}:00`;
-    const { error: errorBloqueo } = await supabase.from("bloqueos").insert({
-      desde: `${fecha}T${horaBloqueo}:00-03:00`,
-      hasta: `${fecha}T${horaFinal}:00-03:00`,
-      motivo: motivoBloqueo.trim(),
-    });
-    if (errorBloqueo) {
+    try { await apiJson("admin/block", { method: "POST", body: JSON.stringify({ fecha, hora: horaBloqueo, motivo: motivoBloqueo.trim() }) }); }
+    catch {
       setError("No pudimos bloquear ese horario. Puede que ya tenga un turno.");
       return;
     }
@@ -257,13 +204,9 @@ export function AdminPanel() {
       <section className="access-card" aria-labelledby="acceso-titulo">
         <p className="eyebrow">Acceso restringido</p>
         <h1 id="acceso-titulo">Panel de recepción</h1>
-        <p>Ingresá con la cuenta habilitada para administrar la agenda.</p>
+        <p>Ingresá con tu cuenta Microsoft 365 habilitada para administrar la agenda.</p>
         {error && <p className="form-alert error" role="alert">{error}</p>}
-        <form onSubmit={ingresar} className="access-form">
-          <label className="field"><span>Correo</span><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></label>
-          <label className="field"><span>Contraseña</span><input type="password" required value={clave} onChange={(e) => setClave(e.target.value)} /></label>
-          <button className="primary-button" type="submit">Ingresar al panel</button>
-        </form>
+        <a className="primary-button" href="/.auth/login/aad?post_login_redirect_uri=/panel/">Ingresar con Microsoft 365</a>
       </section>
     );
   }
@@ -341,7 +284,7 @@ export function AdminPanel() {
         </table>
       </div>
       {vistaRemito && (
-        <div className="remito-modal-backdrop" role="presentation" onMouseDown={() => setVistaRemito(null)}>
+        <div className="remito-modal-backdrop" role="presentation" onMouseDown={() => { URL.revokeObjectURL(vistaRemito.url); setVistaRemito(null); }}>
           <section className="remito-modal" role="dialog" aria-modal="true" aria-labelledby="vista-remito-titulo" onMouseDown={(evento) => evento.stopPropagation()}>
             <header className="remito-modal-heading">
               <div>
@@ -349,7 +292,7 @@ export function AdminPanel() {
                 <h2 id="vista-remito-titulo">Remito {vistaRemito.turno.remito}</h2>
                 <p>{vistaRemito.turno.proveedor} · {vistaRemito.turno.codigo}</p>
               </div>
-              <button className="text-button" type="button" onClick={() => setVistaRemito(null)}>Cerrar</button>
+              <button className="text-button" type="button" onClick={() => { URL.revokeObjectURL(vistaRemito.url); setVistaRemito(null); }}>Cerrar</button>
             </header>
             <div className="remito-preview">
               {vistaRemito.turno.tipoRemito?.startsWith("image/") ? (
@@ -368,14 +311,14 @@ export function AdminPanel() {
               <p>Compará estos datos con el archivo antes de aprobar el turno.</p>
             </div>}
             <footer className="remito-modal-actions">
-              <span>El acceso vence en 5 minutos.</span>
+              <span>Archivo privado para recepción.</span>
               <a className="secondary-button" href={vistaRemito.url} target="_blank" rel="noreferrer">Abrir archivo</a>
             </footer>
           </section>
         </div>
       )}
       <CsvImporter modoDemo={modo === "demo"} informar={informar} />
-      <p className="agenda-footnote">Los enlaces de remito son privados y vencen a los cinco minutos: solo los ve el equipo habilitado.</p>
+      <p className="agenda-footnote">Los archivos de remito son privados: solo los ve el equipo habilitado.</p>
     </section>
   );
 }

@@ -3,7 +3,7 @@
 import { ChangeEvent, useEffect, useState } from "react";
 import readXlsxFile from "read-excel-file/browser";
 
-import { obtenerSupabase } from "@/lib/supabase/client";
+import { apiJson } from "@/lib/api";
 
 type FilaImportacion = {
   cuit: string;
@@ -48,7 +48,6 @@ type VistaPrevia = PropuestaImportacion & {
 };
 
 type OrdenActual = { numero: string; estado: string };
-type ProveedorActual = { cuit: string; email: string | null; codigo_externo: string | null };
 
 const columnasOc = ["Segmento", "Renglon_OC", "Proveed_Id", "RazonSocial", "TipoPermi_Id", "Estado_Id", "Cantidad", "Cantidad_Recibida", "CantidadPendiente", "Moneda_Id", "Producto_id", "DescripcionProducto", "Medida_Id", "Precio", "Fecha"];
 const columnasCatalogo = ["Proveed_Id", "RazonSocial", "Cuit", "EMail"];
@@ -292,11 +291,7 @@ async function prepararReporteSumma(archivoOc: File, archivoCatalogo: File): Pro
 }
 
 async function crearVistaPrevia(propuesta: PropuestaImportacion): Promise<VistaPrevia> {
-  const supabase = obtenerSupabase();
-  if (!supabase) throw new Error("No encontramos la conexión a la base de datos.");
-  const { data, error } = await supabase.from("ordenes_compra").select("numero,estado").range(0, 4999);
-  if (error) throw new Error("No pudimos consultar las OCs actuales. Verificá tu acceso al panel.");
-  const actuales = (data ?? []) as OrdenActual[];
+  const { ordenes: actuales } = await apiJson<{ ordenes: OrdenActual[] }>("admin/orders");
   const actualPorNumero = new Map(actuales.map((orden) => [orden.numero.trim(), orden]));
   let nuevas = 0;
   let actualizadas = 0;
@@ -340,12 +335,9 @@ export function CsvImporter({ modoDemo, informar }: { modoDemo: boolean; informa
     if (modoDemo) return;
     let vigente = true;
     const consultar = async () => {
-      const supabase = obtenerSupabase();
-      if (!supabase) return;
-      const { data } = await supabase.from("ordenes_compra")
-        .select("updated_at").order("updated_at", { ascending: false }).limit(1).maybeSingle();
+      const { ordenes } = await apiJson<{ ordenes: (OrdenActual & { updated_at?: string })[] }>("admin/orders");
       if (vigente) {
-        const fecha = data?.updated_at ?? null;
+        const fecha = ordenes.map((orden) => orden.updated_at).filter((value): value is string => Boolean(value)).sort().at(-1) ?? null;
         setUltimaActualizacion(fecha);
         setCargaVencida(Boolean(fecha && Date.now() - new Date(fecha).getTime() > VIGENCIA_REPORTE_MS));
       }
@@ -423,82 +415,18 @@ export function CsvImporter({ modoDemo, informar }: { modoDemo: boolean; informa
       notificar(`Vista de prueba: se revisarían ${vistaPrevia.proveedores.length} proveedores y ${vistaPrevia.ordenes.length} OCs.`);
       return;
     }
-    const supabase = obtenerSupabase();
-    if (!supabase) {
-      notificar("No encontramos la conexión a la base de datos.", true);
-      return;
-    }
     setOcupado(true);
     notificar("");
     setProgreso("Guardando la actualización…");
     try {
-      const cuits = vistaPrevia.proveedores.map((proveedor) => proveedor.cuit);
-      const { data: proveedoresExistentes, error: errorExistentes } = await supabase
-        .from("proveedores")
-        .select("cuit,email,codigo_externo")
-        .in("cuit", cuits);
-      if (errorExistentes) throw new Error("No pudimos consultar los proveedores existentes.");
-      const existentePorCuit = new Map(((proveedoresExistentes ?? []) as ProveedorActual[]).map((proveedor) => [proveedor.cuit, proveedor]));
-      const { data: proveedoresGuardados, error: errorProveedores } = await supabase
-        .from("proveedores")
-        .upsert(vistaPrevia.proveedores.map((proveedor) => {
-          const existente = existentePorCuit.get(proveedor.cuit);
-          return {
-            cuit: proveedor.cuit,
-            razon_social: proveedor.razon_social,
-            email: proveedor.email || existente?.email || null,
-            codigo_externo: proveedor.codigo_externo || existente?.codigo_externo || null,
-            habilitado: true,
-          };
-        }), { onConflict: "cuit" })
-        .select("id,cuit");
-      if (errorProveedores || !proveedoresGuardados) throw new Error("No pudimos actualizar los proveedores.");
-      const idPorCuit = new Map((proveedoresGuardados as { id: string; cuit: string }[]).map((proveedor) => [proveedor.cuit, proveedor.id]));
-      const { data: ordenesGuardadas, error: errorOrdenes } = await supabase
-        .from("ordenes_compra")
-        .upsert(vistaPrevia.ordenes.map((orden) => ({
-          numero: orden.orden_compra,
-          proveedor_id: idPorCuit.get(orden.cuit),
-          estado: "abierta",
-          ...(orden.fecha ? { fecha: orden.fecha } : {}),
-        })), { onConflict: "numero" })
-        .select("id,numero");
-      if (errorOrdenes || !ordenesGuardadas) throw new Error("No pudimos actualizar las órdenes de compra.");
-      let lineasActualizadas = 0;
-      let controlDetalladoPendiente = false;
-      if (vistaPrevia.lineas.length) {
-        const idPorNumero = new Map((ordenesGuardadas as { id: string; numero: string }[]).map((orden) => [orden.numero, orden.id]));
-        const lineasParaGuardar = vistaPrevia.lineas.map((linea) => {
-          const ordenCompraId = idPorNumero.get(linea.orden_compra);
-          if (!ordenCompraId) throw new Error(`No encontramos la OC ${linea.orden_compra} después de actualizarla.`);
-          return { ...linea, orden_compra_id: ordenCompraId };
-        });
-        const { error: errorLineas } = await supabase
-          .from("lineas_orden_compra")
-          .upsert(lineasParaGuardar.map((linea) => ({
-            orden_compra_id: linea.orden_compra_id,
-            renglon: linea.renglon,
-            producto_codigo: linea.producto_codigo,
-            descripcion_producto: linea.descripcion_producto,
-            unidad_medida: linea.unidad_medida,
-            moneda: linea.moneda,
-            cantidad_ordenada: linea.cantidad_ordenada,
-            cantidad_recibida: linea.cantidad_recibida,
-            cantidad_pendiente: linea.cantidad_pendiente,
-            precio_unitario: linea.precio_unitario,
-          })), { onConflict: "orden_compra_id,renglon" });
-        if (errorLineas) {
-          if (errorLineas.code === "42P01" || errorLineas.code === "PGRST205") controlDetalladoPendiente = true;
-          else throw new Error(`Actualizamos las OCs, pero no pudimos guardar su detalle por renglón (${errorLineas.code ?? "sin código"}: ${errorLineas.message}).`);
-        } else {
-          lineasActualizadas = lineasParaGuardar.length;
-        }
-      }
-      if (vistaPrevia.aCerrar.length) {
-        const { error: errorCierre } = await supabase.from("ordenes_compra").update({ estado: "cerrada" }).in("numero", vistaPrevia.aCerrar);
-        if (errorCierre) throw new Error("Actualizamos las OCs vigentes, pero no pudimos cerrar las que ya no están en el reporte.");
-      }
-      notificar(`Actualización lista: ${vistaPrevia.proveedores.length} proveedores y ${vistaPrevia.ordenes.length} OCs procesadas${lineasActualizadas ? `; ${lineasActualizadas} renglones actualizados.` : ""}${controlDetalladoPendiente ? "; el detalle por renglón se activará cuando apliques la migración pendiente." : ""}${vistaPrevia.aCerrar.length ? `; ${vistaPrevia.aCerrar.length} OCs cerradas.` : "."}`);
+      const resultado = await apiJson<{ proveedores: number; ordenes: number; lineas: number; cerradas: number }>(
+        "admin/import",
+        { method: "POST", body: JSON.stringify({
+          fuente: vistaPrevia.fuente, proveedores: vistaPrevia.proveedores, ordenes: vistaPrevia.ordenes,
+          lineas: vistaPrevia.lineas, aCerrar: vistaPrevia.aCerrar,
+        }) }
+      );
+      notificar(`Actualización lista: ${resultado.proveedores} proveedores, ${resultado.ordenes} OCs y ${resultado.lineas} renglones procesados${resultado.cerradas ? `; ${resultado.cerradas} OCs cerradas.` : "."}`);
       if (vistaPrevia.fuente === "summa") {
         setUltimaActualizacion(new Date().toISOString());
         setCargaVencida(false);

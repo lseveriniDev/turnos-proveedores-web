@@ -4,7 +4,7 @@ import { ClipboardEvent, FormEvent, useEffect, useMemo, useRef, useState } from 
 
 import { FRANJAS, fechaArgentina, textoFecha } from "@/lib/domain";
 import { LecturaRemito, sugerirCodigo } from "@/lib/remito/parse";
-import { obtenerSupabase, supabaseConfigurado } from "@/lib/supabase/client";
+import { apiConfigurada, apiJson } from "@/lib/api";
 
 type DatosFormulario = {
   proveedor: string;
@@ -22,19 +22,16 @@ type DatosFormulario = {
 
 type Fase = "acceso" | "datos" | "horario";
 type RespuestaAcceso = { razon_social: string };
-type RespuestaReserva = {
-  codigo: string;
-  turno_id: string;
-  confirmacion_token: string;
-  upload: { path: string; token: string };
-};
-type RespuestaConfirmacion = { confirmado: boolean; retenido?: boolean; motivo?: string; email_enviado: boolean };
+type RespuestaReserva = { codigo: string; turno_id: string; retenido: boolean; motivo?: string; email_enviado: boolean };
 type LineaOc = { renglon: number; producto_codigo: string; descripcion_producto: string | null; cantidad_ordenada: number | string; cantidad_recibida: number | string };
 type LineaDetectada = { renglonOc: number; cantidad: number; descripcion: string };
 type EstadoAnalisis = "sin_archivo" | "analizando" | "aprobado" | "revision" | "exceso" | "error";
 
 function numero(valor: string | number) { return Number(String(valor).replace(",", ".")); }
-function normalizarRemito(valor: string) { return valor.match(/\d+/g)?.map((parte) => parte.replace(/^0+(?=\d)/, "")).join("-") ?? valor.trim().toUpperCase(); }
+function normalizarRemito(valor: string) {
+  return (valor.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").match(/[A-Z]+|\d+/g) ?? [])
+    .map((parte) => /^\d+$/.test(parte) ? parte.replace(/^0+(?=\d)/, "") : parte).join("-");
+}
 
 const fases: { clave: Fase; titulo: string; detalle: string }[] = [
   { clave: "acceso", titulo: "Validá tu acceso", detalle: "CUIT y orden de compra" },
@@ -186,15 +183,10 @@ export function BookingForm() {
     setProgresoLectura("Consultando los productos de la OC…");
     let detalleCargado = false;
     try {
-      const supabase = obtenerSupabase();
-      let lineas: LineaOc[] = [];
-      if (supabase) {
-        const { data, error } = await supabase.functions.invoke("crear-reserva", { body: {
-          accion: "detalle_oc", cuit: cuitCompleto(datos), ordenCompra: datos.ordenCompra,
-        } });
-        if (error) throw new Error("No pudimos consultar los productos de la OC. Intentá nuevamente.");
-        lineas = ((data as { lineas?: LineaOc[] } | null)?.lineas ?? []);
-      }
+      const detalle = await apiJson<{ lineas: LineaOc[] }>("order", {
+        method: "POST", body: JSON.stringify({ cuit: cuitCompleto(datos), ordenCompra: datos.ordenCompra }),
+      });
+      const lineas = detalle.lineas ?? [];
       if (solicitud !== analisisVigente.current) return;
       detalleCargado = true;
       const { leerRemito } = await import("@/lib/remito/reader");
@@ -235,20 +227,13 @@ export function BookingForm() {
   useEffect(() => {
     if (fase !== "horario") return;
 
-    const supabase = obtenerSupabase();
-    if (!supabase) return;
     let vigente = true;
-    void supabase.rpc("horarios_disponibles_publicos", { p_fecha: datos.fecha }).then(({ data, error }) => {
+    void apiJson<{ horarios: string[] }>(`slots?fecha=${encodeURIComponent(datos.fecha)}`).then(({ horarios: disponibles }) => {
       if (!vigente) return;
-      if (error) {
-        setHorarios([]);
-        setErrorHorarios("No pudimos consultar los horarios. Actualizá la página e intentá nuevamente.");
-      } else {
-        const disponibles = ((data ?? []) as { hora: string }[]).map((fila) => fila.hora);
-        setHorarios(disponibles);
-        setDatos((actuales) => disponibles.includes(actuales.hora) ? actuales : { ...actuales, hora: "" });
-      }
-    });
+      setHorarios(disponibles);
+      setErrorHorarios("");
+      setDatos((actuales) => disponibles.includes(actuales.hora) ? actuales : { ...actuales, hora: "" });
+    }).catch(() => { if (vigente) { setHorarios([]); setErrorHorarios("No pudimos consultar los horarios. Actualizá la página e intentá nuevamente."); } });
     return () => { vigente = false; };
   }, [datos.fecha, fase]);
 
@@ -258,24 +243,10 @@ export function BookingForm() {
     setValidandoAcceso(true);
 
     try {
-      const supabase = obtenerSupabase();
-      if (!supabase) {
-        setProveedorValidado("Proveedor de prueba");
-        setFase("datos");
-        return;
-      }
-
-      const { data, error } = await supabase.rpc("validar_acceso_reserva", {
-        p_orden_compra: datos.ordenCompra,
-        p_cuit: cuitCompleto(datos),
+      const respuesta = await apiJson<RespuestaAcceso>("access", {
+        method: "POST", body: JSON.stringify({ ordenCompra: datos.ordenCompra, cuit: cuitCompleto(datos) }),
       });
-      const respuesta = data as RespuestaAcceso[] | null;
-      if (error || !respuesta?.[0]) {
-        setErrorAcceso("No encontramos una orden de compra abierta para ese CUIT. Revisá los datos o consultá con recepción.");
-        return;
-      }
-
-      setProveedorValidado(respuesta[0].razon_social);
+      setProveedorValidado(respuesta.razon_social);
       setFase("datos");
     } catch {
       setErrorAcceso("No pudimos validar los datos ahora. Probá nuevamente.");
@@ -316,18 +287,10 @@ export function BookingForm() {
     setEstado("enviando");
     setMensaje("");
     try {
-      const supabase = obtenerSupabase();
-      if (!supabase) {
-        await new Promise((resolver) => window.setTimeout(resolver, 450));
-        setCodigo("PRUEBA-0001");
-        setEstado("exito");
-        return;
-      }
       if (!archivo) throw new Error("Adjuntá el remito para continuar.");
-
-      const { data: respuesta, error } = await supabase.functions.invoke("crear-reserva", {
-        body: {
-          accion: "crear",
+      const form = new FormData();
+      form.set("archivo", archivo);
+      form.set("datos", JSON.stringify({
           proveedor: proveedorValidado,
           cuit: cuitCompleto(datos),
           email: datos.email,
@@ -340,46 +303,12 @@ export function BookingForm() {
           archivo: { nombre: archivo.name, tipo: archivo.type, bytes: archivo.size },
           lineasDeclaradas: lineasDetectadas,
           lecturaIncompleta: analisisIncompleto || !lectura || !lectura.numero || normalizarRemito(lectura.numero) !== normalizarRemito(datos.numeroRemito),
-        },
-      });
-      const data = respuesta as RespuestaReserva | null;
-      if (error || !data) {
-        const contexto = (error as { context?: { clone?: () => Response } } | null)?.context;
-        if (contexto?.clone) {
-          const detalle = await contexto.clone().json().catch(() => null) as { error?: string } | null;
-          if (detalle?.error) throw new Error(detalle.error);
-        }
-        throw new Error(error?.message || "No pudimos registrar el turno.");
-      }
-
-      if (!data.confirmacion_token || !data.upload?.path || !data.upload?.token) {
-        throw new Error("La reserva no devolvió los datos necesarios para adjuntar el remito.");
-      }
-      setCodigo(data.codigo);
-      const { error: errorArchivo } = await supabase.storage
-        .from("remitos")
-        .uploadToSignedUrl(data.upload.path, data.upload.token, archivo, { contentType: archivo.type });
-      if (errorArchivo) {
-        const { data: cancelacion, error: errorCancelacion } = await supabase.functions.invoke("crear-reserva", {
-          body: { accion: "cancelar", turno_id: data.turno_id, token: data.confirmacion_token },
-        });
-        if (!errorCancelacion && (cancelacion as { cancelado?: boolean } | null)?.cancelado) {
-          throw new Error("No pudimos adjuntar el remito. El horario quedó libre para que vuelvas a intentarlo.");
-        }
-        setMensaje("El turno quedó reservado, pero no pudimos adjuntar el remito. Comunicate con recepción e indicá el código.");
-        setEstado("exito");
-        return;
-      }
-
-      const { data: confirmacion, error: errorConfirmacion } = await supabase.functions.invoke("crear-reserva", {
-        body: { accion: "confirmar", turno_id: data.turno_id, token: data.confirmacion_token },
-      });
-      const resultado = confirmacion as RespuestaConfirmacion | null;
+      }));
+      const resultado = await apiJson<RespuestaReserva>("book", { method: "POST", body: form });
+      setCodigo(resultado.codigo);
       if (resultado?.retenido) {
         setRetenido(true);
         setMensaje(`Recepción debe revisar el remito antes de confirmar el turno.${resultado.email_enviado ? " Te enviamos un correo con la solicitud." : " Conservá el código de solicitud."}`);
-      } else if (errorConfirmacion || !resultado?.confirmado) {
-        setMensaje("El remito se adjuntó, pero no pudimos completar la confirmación. Comunicate con recepción e indicá el código.");
       } else if (!resultado.email_enviado) {
         setMensaje("El turno quedó confirmado, pero no pudimos enviar el correo. Conservá este código de reserva.");
       }
@@ -436,7 +365,7 @@ export function BookingForm() {
             <span>Remito</span><b>{datos.numeroRemito}</b>
           </div>
           {mensaje && <p className="form-alert warning">{mensaje}</p>}
-          {!supabaseConfigurado && <p className="form-alert info">Esta es una confirmación de demostración: todavía no guarda datos reales.</p>}
+          {!apiConfigurada && <p className="form-alert info">Esta es una confirmación de demostración: todavía no guarda datos reales.</p>}
           <button className="secondary-button" type="button" onClick={reiniciar}>Reservar otro turno</button>
         </section>
       ) : fase === "acceso" ? (
@@ -446,7 +375,7 @@ export function BookingForm() {
               <p className="eyebrow">Paso 1 de 3</p>
               <h2 id="acceso-reserva-titulo">Validá tu acceso</h2>
             </div>
-            {!supabaseConfigurado && <span className="demo-badge">Vista de prueba</span>}
+            {!apiConfigurada && <span className="demo-badge">Vista de prueba</span>}
           </div>
           <p className="phase-description">Ingresá los datos tal como figuran en la orden de compra. Con eso habilitamos el resto del formulario.</p>
           {errorAcceso && <p className="form-alert error" role="alert">{errorAcceso}</p>}
