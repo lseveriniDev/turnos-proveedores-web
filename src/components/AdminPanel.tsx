@@ -69,7 +69,7 @@ export function AdminPanel() {
   const [email, setEmail] = useState("");
   const [clave, setClave] = useState("");
   const [fecha, setFecha] = useState(fechaArgentina);
-  const [turnos, setTurnos] = useState<TurnoAgenda[]>(DEMO_AGENDA);
+  const [turnos, setTurnos] = useState<TurnoAgenda[]>(supabaseConfigurado ? [] : DEMO_AGENDA);
   const [mensaje, setMensaje] = useState("");
   const [error, setError] = useState("");
   const [horaBloqueo, setHoraBloqueo] = useState("08:00");
@@ -100,18 +100,23 @@ export function AdminPanel() {
   useEffect(() => {
     if (modo !== "panel" || !supabaseConfigurado) return;
     let vigente = true;
-    const actualizar = () => void consultarAgenda(fecha).then((resultado) => {
+    let reintento: number | null = null;
+    const actualizar = (reintentar = true): void => { void consultarAgenda(fecha).then((resultado) => {
       if (!vigente) return;
       if (resultado.tieneError) {
+        if (reintentar) {
+          reintento = window.setTimeout(() => actualizar(false), 1500);
+          return;
+        }
         setError("No pudimos cargar la agenda. Verificá que el usuario tenga acceso al panel.");
         return;
       }
       if (resultado.agenda) setTurnos(resultado.agenda);
       setError("");
-    });
+    }); };
     actualizar();
-    const intervalo = window.setInterval(actualizar, 60 * 1000);
-    return () => { vigente = false; window.clearInterval(intervalo); };
+    const intervalo = window.setInterval(() => actualizar(), 60 * 1000);
+    return () => { vigente = false; window.clearInterval(intervalo); if (reintento !== null) window.clearTimeout(reintento); };
   }, [fecha, modo]);
 
   const ingresar = async (evento: FormEvent<HTMLFormElement>) => {
