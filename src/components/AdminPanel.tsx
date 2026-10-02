@@ -27,7 +27,7 @@ async function consultarAgenda(fecha: string) {
     const { agenda: rows } = await apiJson<{ agenda: {
       id: string; codigo: string; inicio: string; hora: string; estado: EstadoTurno;
       proveedor_nombre: string; orden_compra: string; patente: string | null;
-      remito?: { numero: string; sharepoint_item_id?: string | null; mime_type?: string | null;
+      remito?: { numero: string; sharepoint_item_id?: string | null; legacy_storage_path?: string | null; mime_type?: string | null;
         motivo_revision?: string | null; lineas_declaradas?: { renglonOc: number; cantidad: number; descripcion: string }[] | null };
     }[] }>(`admin/agenda?fecha=${encodeURIComponent(fecha)}`);
     const agenda = rows.map((registro) => {
@@ -40,6 +40,7 @@ async function consultarAgenda(fecha: string) {
       ordenCompra: registro.orden_compra ?? "—",
       remito: remito?.numero ?? "—",
       rutaRemito: remito?.sharepoint_item_id ?? null,
+      archivoLegado: Boolean(remito?.legacy_storage_path),
       tipoRemito: remito?.mime_type ?? null,
       motivoRevision: remito?.motivo_revision ?? null,
       lineasDeclaradas: remito?.lineas_declaradas ?? null,
@@ -136,6 +137,11 @@ export function AdminPanel() {
   };
 
   const verRemito = async (turno: TurnoAgenda) => {
+    if (!turno.rutaRemito && turno.archivoLegado && modo === "panel") {
+      window.open("https://turnos-proveedores-gottert.pages.dev/panel/", "_blank", "noopener,noreferrer");
+      setMensaje(`El archivo histórico de ${turno.codigo} sigue en el panel anterior. Seleccioná allí el día ${fecha}.`);
+      return;
+    }
     if (!turno.rutaRemito || modo === "demo") {
       setMensaje("En la vista de prueba el archivo de remito todavía no está disponible.");
       return;
@@ -274,7 +280,7 @@ export function AdminPanel() {
                   <td><span className={`status ${turno.estado}`}>{etiquetaEstado[turno.estado]}</span>{turno.estado === "retenido" && turno.motivoRevision && <small>{turno.motivoRevision}</small>}</td>
                   <td><div className="row-actions">
                     <button className="text-button" type="button" aria-expanded={controlAbierto?.turnoId === turno.id} aria-controls={`control-${turno.id}`} onClick={() => void alternarControl(turno)}>{controlAbierto?.turnoId === turno.id ? "Ocultar" : "Control"}</button>
-                    <button className="text-button" disabled={abriendoRemitoId === turno.id} type="button" onClick={() => void verRemito(turno)}>{abriendoRemitoId === turno.id ? "Abriendo…" : "Ver remito"}</button>
+                    <button className="text-button" disabled={abriendoRemitoId === turno.id} type="button" onClick={() => void verRemito(turno)}>{abriendoRemitoId === turno.id ? "Abriendo…" : turno.archivoLegado && !turno.rutaRemito ? "Ver en portal anterior" : "Ver remito"}</button>
                     {turno.estado === "retenido" && <button className="text-button" type="button" onClick={() => void aprobarRetenido(turno)}>Aprobar</button>}
                     {turno.estado !== "en_planta" && turno.estado !== "retenido" && <button className="text-button" type="button" onClick={() => void cambiarEstado(turno.id, "en_planta")}>Llegó</button>}
                     <button className="text-button danger" type="button" onClick={() => void cambiarEstado(turno.id, "anulado")}>Anular</button>

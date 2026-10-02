@@ -8,6 +8,7 @@ export type TurnoAgenda = {
   ordenCompra: string;
   remito: string;
   rutaRemito?: string | null;
+  archivoLegado?: boolean;
   tipoRemito?: string | null;
   motivoRevision?: string | null;
   lineasDeclaradas?: { renglonOc: number; cantidad: number; descripcion: string }[] | null;

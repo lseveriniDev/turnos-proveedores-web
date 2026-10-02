@@ -52,7 +52,7 @@ npm test
 
 El sitio se exporta a `out/`. La API está en `api/` y se publica junto al sitio. Para probarla localmente se necesita Azure Static Web Apps CLI y un `api/local.settings.json` privado con las mismas variables.
 
-El archivo histórico de Supabase se exportó a `.local/supabase-snapshot.json` (ignorado por Git). `scripts/migrate-supabase-snapshot.js` importa esos datos a Firestore de forma controlada. Los archivos históricos de remito se deben copiar a SharePoint y vincular a cada turno antes de abandonar el portal anterior.
+El archivo histórico de Supabase se exportó a `.local/supabase-snapshot.json` (ignorado por Git). `scripts/migrate-supabase-snapshot.js` importa esos datos a Firestore de forma controlada. Mientras se copian los archivos históricos a SharePoint, el panel enlaza los remitos pendientes al portal anterior. No retirar el portal anterior hasta completar esa copia.
 
 ## Seguridad y publicación
 
