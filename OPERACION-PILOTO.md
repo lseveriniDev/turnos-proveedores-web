@@ -19,8 +19,8 @@ Este procedimiento permite recibir reservas mientras la integración automática
 
 ## Antes de compartir el enlace con proveedores
 
-- Confirmar con la dirección que se acepta esta operación temporal en la nube y las reglas vigentes: horarios de 08:00 a 17:00, dos horas de anticipación y máximo de diez turnos futuros abiertos por proveedor.
-- Renovar la contraseña del panel que se compartió durante las pruebas y guardar el acceso en el gestor de contraseñas de la empresa.
+- Confirmar con la dirección que se acepta esta operación temporal en la nube y las reglas vigentes: agenda de 08:00 a 17:00, con última reserva a las 16:00, dos horas de anticipación y máximo de diez turnos futuros abiertos por proveedor.
+- Guardar el acceso al panel en el gestor de contraseñas de la empresa. La titular decidió conservar por ahora la contraseña usada durante las pruebas; se recomienda renovarla antes de la apertura general porque se compartió en este chat.
 - Verificar una reserva completa con una OC vigente: adjuntar remito, comprobar el correo, verla en la agenda y abrir el archivo desde el panel. Anular el turno de prueba al terminar.
 - Confirmar cómo se respaldan y restauran tanto la base como los archivos privados de remitos. El respaldo de la base por sí solo no recupera los PDF.
 - Comunicar a recepción que el análisis del remito es una ayuda automática: las lecturas incompletas o dudosas pasan a revisión interna. La recepción y el ingreso al ERP siguen como hoy.

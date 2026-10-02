@@ -16,10 +16,10 @@
 
 ## Tareas de hoy antes de difundir el portal
 
-1. Cambiar la contraseña del panel que se compartió durante las pruebas. La persona titular de la cuenta debe hacerlo en Supabase Auth.
+1. La titular decidió mantener por ahora la contraseña del panel usada durante las pruebas, pese a que se compartió en este chat. Se recomienda rotarla antes de una apertura general y evitar compartirla nuevamente.
 2. Confirmar con la dirección la modalidad temporal: nube en vez de servidor propio, franjas de 08:00 a 16:00 y máximo de diez turnos futuros por proveedor.
 3. Hacer una reserva completa con una OC vigente y anularla al finalizar: carga de remito, correo, agenda y visualización del archivo.
-4. Verificar la protección y recuperación de la base y de los PDF de remitos. Los respaldos de la base no incluyen los archivos de Storage.
+4. Definir y probar la recuperación de la base y de los PDF de remitos. El proyecto Supabase está en el plan Free, sin los respaldos diarios administrados de los planes pagos. Incluso en esos planes, los respaldos de la base no incluyen los archivos de Storage. Mientras se prepara una copia externa, conservar los remitos por el procedimiento habitual de recepción.
 5. Designar una persona para exportar y cargar ambas planillas al abrir, al mediodía y antes del cierre. Seguir [el procedimiento diario](OPERACION-PILOTO.md).
 
 ## Diferencias con el paquete original
