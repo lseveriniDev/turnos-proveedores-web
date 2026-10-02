@@ -178,6 +178,20 @@ route("admin_agenda", ["GET"], async (request) => {
   }
 });
 
+route("admin_health", ["GET"], async (request) => {
+  let cuenta = null;
+  try {
+    const header = request.headers.get("x-ms-client-principal");
+    cuenta = header ? JSON.parse(Buffer.from(header, "base64").toString("utf8"))?.userDetails || null : null;
+  } catch { /* El chequeo de acceso informa el motivo. */ }
+  try {
+    const principal = await requireAdmin(request);
+    return json({ autorizado: true, cuenta: principal.userDetails, version: "2026-10-02-b" });
+  } catch (error) {
+    return json({ autorizado: false, cuenta, motivo: error instanceof Error ? error.message : "error desconocido", version: "2026-10-02-b" });
+  }
+});
+
 route("admin_turno", ["POST"], async (request) => {
   await requireAdmin(request);
   const data = await body(request);

@@ -50,7 +50,15 @@ async function consultarAgenda(fecha: string) {
   });
     return { agenda, error: null };
   } catch (error) {
-    return { agenda: null, error: error instanceof Error ? error.message : "No pudimos cargar la agenda." };
+    const base = error instanceof Error ? error.message : "No pudimos cargar la agenda.";
+    try {
+      const diagnostico = await apiJson<{ autorizado: boolean; cuenta?: string; motivo?: string; version?: string }>("admin/health");
+      return { agenda: null, error: diagnostico.autorizado
+        ? `${base} (acceso al servidor confirmado)`
+        : `${base} (${diagnostico.motivo || "sesión no validada por el servidor"}${diagnostico.cuenta ? `: ${diagnostico.cuenta}` : ""})` };
+    } catch {
+      return { agenda: null, error: `${base} (la comprobación del servidor también falló)` };
+    }
   }
 }
 
