@@ -56,8 +56,9 @@ async function consultarAgenda(fecha: string) {
       return { agenda: null, error: diagnostico.autorizado
         ? `${base} (acceso al servidor confirmado)`
         : `${base} (${diagnostico.motivo || "sesión no validada por el servidor"}${diagnostico.cuenta ? `: ${diagnostico.cuenta}` : ""})` };
-    } catch {
-      return { agenda: null, error: `${base} (la comprobación del servidor también falló)` };
+    } catch (diagnosticError) {
+      const detail = diagnosticError instanceof Error ? diagnosticError.message : "sin respuesta";
+      return { agenda: null, error: `${base} (comprobación del servidor: ${detail})` };
     }
   }
 }
