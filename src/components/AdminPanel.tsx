@@ -199,6 +199,19 @@ export function AdminPanel() {
     setMotivoBloqueo("");
   };
 
+  const descargarRespaldo = async () => {
+    try {
+      const respuesta = await fetch("/api/admin/backup", { cache: "no-store" });
+      if (!respuesta.ok) throw new Error("No pudimos descargar el respaldo.");
+      const url = URL.createObjectURL(await respuesta.blob());
+      const enlace = document.createElement("a");
+      enlace.href = url;
+      enlace.download = `turnos-proveedores-${fechaArgentina()}.json`;
+      enlace.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch { setError("No pudimos descargar el respaldo."); }
+  };
+
   if (modo === "acceso") {
     return (
       <section className="access-card" aria-labelledby="acceso-titulo">
@@ -220,7 +233,8 @@ export function AdminPanel() {
           <p>{ocupados} de {FRANJAS.length} horarios ocupados.</p>
           {pendientes > 0 && <p className="agenda-pending" role="status">{pendientes} turno{pendientes === 1 ? "" : "s"} pendiente{pendientes === 1 ? "" : "s"} de revisión para este día.</p>}
         </div>
-        {modo === "demo" && <span className="demo-badge">Vista de prueba</span>}
+        {modo === "demo" ? <span className="demo-badge">Vista de prueba</span> :
+          <button className="text-button" type="button" onClick={() => void descargarRespaldo()}>Descargar respaldo</button>}
       </div>
 
       {mensaje && <p className="form-alert success" role="status">{mensaje}</p>}

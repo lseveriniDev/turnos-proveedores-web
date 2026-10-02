@@ -22,6 +22,8 @@ El panel usa el inicio de sesión de Microsoft 365 de Azure Static Web Apps. Ade
 
 Exportá el reporte completo de OCs y el catálogo de proveedores dos o tres veces al día. En el panel, seleccioná ambas planillas, revisá la vista previa y confirmá. La importación crea o actualiza proveedores, OCs y sus renglones; solicita confirmación para cerrar OCs que desaparecieron del reporte. El CSV sirve para una carga parcial y no cierra OCs.
 
+El botón **Descargar respaldo** guarda un JSON con proveedores, OCs, turnos y bloqueos. Los archivos de remito permanecen en SharePoint. Descargá un respaldo al menos una vez por día hasta automatizar la copia.
+
 ## Variables privadas de Azure
 
 Configurar en **Static Web App → Environment variables**:

@@ -255,6 +255,24 @@ route("admin_orders", ["GET"], async (request) => {
   })) });
 });
 
+route("admin_backup", ["GET"], async (request) => {
+  await requireAdmin(request);
+  const collections = ["proveedores", "ordenes_compra", "turnos", "slots", "configuracion", "counters", "remitoKeys"];
+  const rows = await Promise.all(collections.map((name) => db().collection(name).get()));
+  const snapshot = Object.fromEntries(rows.map((result, index) => [
+    collections[index], result.docs.map((doc) => ({ ...doc.data(), _firestore_id: doc.id })),
+  ]));
+  return {
+    status: 200,
+    body: JSON.stringify({ exportedAt: new Date().toISOString(), project: "turnos-proveedores-gottert", collections: snapshot }),
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Content-Disposition": `attachment; filename="turnos-proveedores-${new Date().toISOString().slice(0, 10)}.json"`,
+      "Cache-Control": "private, no-store",
+    },
+  };
+});
+
 route("admin_import", ["POST"], async (request) => {
   await requireAdmin(request);
   const data = await body(request);
