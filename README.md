@@ -1,11 +1,13 @@
 # Turnos de proveedores · Göttert
 
-Portal de reservas y agenda de recepción. La versión nueva usa Azure Static Web Apps para el sitio y la API, Cloud Firestore para los datos y SharePoint para los PDF e imágenes de remitos. El acceso al panel usa la cuenta Microsoft 365 y una lista explícita de administradores. GitHub Actions publica los cambios de la rama `firebase-azure-migration`.
+Portal público de reservas para proveedores. Esta aplicación contiene el formulario y sus funciones de reserva en Azure Static Web Apps. La [agenda interna](https://github.com/lseveriniDev/turnos-recepcion-interna) vive en otro repositorio y en otra Static Web App. Ambas aplicaciones comparten Cloud Firestore y la biblioteca de remitos de SharePoint.
 
-## Estado del portal (02/10/2026)
+## Estado del portal (06/10/2026)
 
-- Portal Azure publicado: <https://green-forest-0f3977b0f.2.azurestaticapps.net/>.
-- Panel interno: <https://green-forest-0f3977b0f.2.azurestaticapps.net/panel/> (inicio de sesión Microsoft 365).
+- Portal Azure publicado: <https://turnos-gottert.gottert.com.ar/>.
+- Agenda interna: <https://recepcion-gottert.gottert.com.ar/> (inicio de sesión Microsoft 365).
+- Dirección técnica de Azure: <https://green-forest-0f3977b0f.2.azurestaticapps.net/>.
+- DNS público validado en Azure. En la zona DNS interna de `gottert.com.ar` aún falta el CNAME `turnos-gottert` → `green-forest-0f3977b0f.2.azurestaticapps.net`; sin él, el nombre no resuelve desde la red de la empresa.
 - Portal anterior disponible como respaldo: <https://turnos-proveedores-gottert.pages.dev/>.
 - Firebase: proyecto `turnos-proveedores-gottert`, Firestore `southamerica-east1`, plan Spark.
 - SharePoint: `GOTTERT / Shared Documents / 05-Suministros / 1. Compras / 3. Registros / Turnos Proveedores`.
@@ -16,17 +18,9 @@ Portal de reservas y agenda de recepción. La versión nueva usa Azure Static We
 
 El proveedor valida CUIT y OC abierta, adjunta un PDF o imagen de hasta 10 MB y el navegador intenta reconocer los renglones. Si el acumulado supera el 110% de algún renglón de la OC, no puede continuar. Las entregas parciales se permiten. Lecturas dudosas ocupan el horario y quedan pendientes de revisión interna. En el panel se muestra una lista informativa de los productos detectados y el remito original. No se edita la OC desde recepción.
 
-La API de Azure valida nuevamente la OC, la cantidad, el horario y la unicidad del remito por proveedor. Guarda el archivo en SharePoint dentro de `Turnos Proveedores/{CUIT - Proveedor}/{OC}/{Remito}_{Fecha}_{ID}.{ext}`. Una transacción de Firestore crea el turno y bloquea el horario. Si no se puede crear, intenta retirar el archivo recién subido.
+La API de Azure valida nuevamente la OC, la cantidad, el horario y la unicidad del remito por proveedor. Guarda el archivo en SharePoint dentro de `Turnos Proveedores/{Razón social - últimos 4 dígitos de la OC}/{Remito}_{Fecha}_{ID}.{ext}`; por ejemplo, `GRANT - 9032`. Una transacción de Firestore crea el turno y bloquea el horario. Si no se puede crear, intenta retirar el archivo recién subido.
 
-El panel usa el inicio de sesión de Microsoft 365 de Azure Static Web Apps. Además, `ADMIN_EMAILS` limita el acceso a las cuentas autorizadas. Las reglas de Firestore no permiten acceso directo desde el navegador.
-
-## Operación diaria de Summa
-
-Exportá el reporte completo de OCs y el catálogo de proveedores dos o tres veces al día. En el panel, seleccioná ambas planillas, revisá la vista previa y confirmá. La importación crea o actualiza proveedores, OCs y sus renglones; solicita confirmación para cerrar OCs que desaparecieron del reporte. El CSV sirve para una carga parcial y no cierra OCs.
-
-Si el panel no permite importar, `scripts/sync-summa-firebase.js` ofrece un respaldo operativo. Requiere una cuenta de servicio privada en `FIREBASE_SERVICE_ACCOUNT_FILE`; primero se ejecuta en modo de revisión y solo `--apply` escribe los cambios. No usar una exportación de más de cuatro horas.
-
-El botón **Descargar respaldo** guarda un JSON con proveedores, OCs, turnos y bloqueos. Los archivos de remito permanecen en SharePoint. Descargá un respaldo al menos una vez por día hasta automatizar la copia.
+La agenda interna se publica por separado y usa Microsoft 365. Las reglas de Firestore no permiten acceso directo desde el navegador.
 
 ## Variables privadas de Azure
 
@@ -36,7 +30,6 @@ Configurar en **Static Web App → Environment variables**:
 | --- | --- |
 | `FIREBASE_PROJECT_ID` | `turnos-proveedores-gottert` |
 | `FIREBASE_SERVICE_ACCOUNT_B64` | JSON de una cuenta de servicio de Firestore, codificado en Base64 |
-| `ADMIN_EMAILS` | Correos del equipo autorizados, separados por coma |
 | `GRAPH_TENANT_ID`, `GRAPH_CLIENT_ID`, `GRAPH_CLIENT_SECRET` | Aplicación de Microsoft Graph para guardar remitos |
 | `SHAREPOINT_DRIVE_ID`, `SHAREPOINT_FOLDER_ID` | Biblioteca y carpeta raíz de remitos |
 | `RESEND_API_KEY`, `MAIL_FROM` | Correo de confirmación desde el dominio verificado |
@@ -45,12 +38,26 @@ Nunca subir esas claves al repositorio. El token de publicación de Azure se gua
 
 ## Desarrollo y pruebas
 
+Para preparar el entorno local:
+
 ```powershell
 npm ci
+npm ci --prefix api
+if (-not (Test-Path api/local.settings.json)) { Copy-Item api/local.settings.example.json api/local.settings.json }
+```
+
+Completá `FIREBASE_SERVICE_ACCOUNT_B64` en `api/local.settings.json` y después ejecutá `npm run dev`. Para usar el portal en tu computadora, abrí **http://localhost:4280**. El puerto 3000 sirve solo a la interfaz y no responde a `/api/access`; por eso validar un CUIT desde allí devuelve HTTP 404. `npm run dev` inicia la interfaz, las funciones de Azure y el emulador de Static Web Apps. El proyecto usa Node 20 para este comando sin cambiar la versión de Node instalada en el sistema. Si Azure Functions Core Tools no está instalado, la CLI lo descargará en el primer inicio.
+
+`FIREBASE_SERVICE_ACCOUNT_B64` contiene la credencial privada del proyecto Firebase codificada en Base64. `api/local.settings.json` está ignorado por Git y no debe compartirse. Las variables de Graph, SharePoint y correo son necesarias para probar una reserva completa.
+
+Para iniciar solo la interfaz, usá `npm run dev:frontend`; en ese modo las llamadas a `/api/*` devolverán 404.
+
+Para verificar la compilación y los controles del proyecto:
+
+```powershell
 npm run build
 npm run lint
 cd api
-npm ci
 npm test
 ```
 
@@ -61,6 +68,6 @@ El archivo histórico de Supabase se exportó a `.local/supabase-snapshot.json` 
 ## Seguridad y publicación
 
 - `firestore.rules` deniega todas las lecturas y escrituras directas; solo la API con credencial de servicio accede a los datos.
-- `public/staticwebapp.config.json` exige inicio de sesión para `/api/staff-*`; la API también comprueba el correo autorizado.
+- Esta API solo registra las rutas públicas de consulta y reserva. Las rutas `/api/staff-*` se publican únicamente en la aplicación interna.
 - El flujo de GitHub publica la rama `firebase-azure-migration` en el sitio Azure. La dirección anterior permanece separada.
 - El panel y el respaldo se verificaron con la cuenta autorizada. Antes de abrirlo a todos los proveedores, conviene que recepción haga una reserva propia y confirme su procedimiento de aprobación, llegada y anulación.

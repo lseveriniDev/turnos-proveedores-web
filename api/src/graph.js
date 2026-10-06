@@ -54,6 +54,12 @@ function safeName(value, max = 90) {
     .replace(/[\\/:*?"<>|#%]/g, "-").replace(/\s+/g, " ").trim().slice(0, max);
 }
 
+function folderNameForOrder(proveedor, ordenCompra) {
+  const digits = String(ordenCompra).replace(/\D/g, "");
+  const suffix = digits.slice(-4) || safeName(ordenCompra, 12);
+  return `${safeName(proveedor, 88 - suffix.length)} - ${suffix}`;
+}
+
 async function ensureFolder(driveId, parentId, name) {
   const body = JSON.stringify({
     name, folder: {}, "@microsoft.graph.conflictBehavior": "fail",
@@ -72,10 +78,9 @@ async function ensureFolder(driveId, parentId, name) {
   return item.id;
 }
 
-async function uploadRemito(buffer, filename, mimeType, proveedor, cuit, ordenCompra) {
+async function uploadRemito(buffer, filename, mimeType, proveedor, ordenCompra) {
   const { driveId, folderId } = driveSettings();
-  const supplierFolder = await ensureFolder(driveId, folderId, safeName(`${cuit} - ${proveedor}`));
-  const orderFolder = await ensureFolder(driveId, supplierFolder, safeName(ordenCompra));
+  const orderFolder = await ensureFolder(driveId, folderId, folderNameForOrder(proveedor, ordenCompra));
   const response = await graphRequest(
     `/drives/${encodeURIComponent(driveId)}/items/${encodeURIComponent(orderFolder)}:/${encodePath(filename)}:/content`,
     { method: "PUT", headers: { "Content-Type": mimeType }, body: buffer }
@@ -85,15 +90,9 @@ async function uploadRemito(buffer, filename, mimeType, proveedor, cuit, ordenCo
   return { itemId: item.id, webUrl: item.webUrl || null };
 }
 
-async function downloadRemito(itemId) {
-  const { driveId } = driveSettings();
-  const response = await graphRequest(`/drives/${encodeURIComponent(driveId)}/items/${encodeURIComponent(itemId)}/content`);
-  return Buffer.from(await response.arrayBuffer());
-}
-
 async function deleteRemito(itemId) {
   const { driveId } = driveSettings();
   await graphRequest(`/drives/${encodeURIComponent(driveId)}/items/${encodeURIComponent(itemId)}`, { method: "DELETE" });
 }
 
-module.exports = { uploadRemito, downloadRemito, deleteRemito };
+module.exports = { uploadRemito, deleteRemito, folderNameForOrder };

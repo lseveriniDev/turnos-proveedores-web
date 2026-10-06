@@ -1,10 +1,4 @@
 {
-  "routes": [
-    {
-      "route": "/api/staff-*",
-      "allowedRoles": ["authenticated"]
-    }
-  ],
   "platform": {
     "apiRuntime": "node:20"
   },

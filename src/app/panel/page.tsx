@@ -1,21 +1,12 @@
-import Link from "next/link";
-
-import { AdminPanel } from "@/components/AdminPanel";
-
-export default function PanelPage() {
+export default function PanelTrasladado() {
   return (
-    <main className="shell panel-shell">
-      <header className="site-header">
-        <Link className="brand" href="/" aria-label="Turnos de proveedores, inicio">
-          <span className="brand-mark" aria-hidden="true">T</span>
-          <span>
-            <strong>Turnos</strong>
-            <small>Panel interno</small>
-          </span>
-        </Link>
-        <Link className="panel-link" href="/">Ver portal público</Link>
-      </header>
-      <AdminPanel />
+    <main className="shell">
+      <section className="access-card">
+        <p className="eyebrow">Recepción Göttert</p>
+        <h1>La agenda interna tiene su propio sitio</h1>
+        <p>Si trabajás en recepción, ingresá con tu cuenta Microsoft 365 desde la nueva dirección.</p>
+        <a className="primary-button" href="https://recepcion-gottert.gottert.com.ar/">Abrir agenda de recepción</a>
+      </section>
     </main>
   );
 }

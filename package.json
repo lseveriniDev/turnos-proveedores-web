@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "build": "next build",
-    "dev": "next dev --webpack",
+    "dev": "node scripts/dev-local.mjs",
+    "dev:frontend": "next dev --webpack",
     "start": "next start",
     "lint": "eslint",
     "preview": "wrangler pages dev out",
@@ -15,16 +16,17 @@
     "pdfjs-dist": "6.3.289",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "read-excel-file": "^9.3.10",
     "tesseract.js": "7.0.0"
   },
   "devDependencies": {
+    "@azure/static-web-apps-cli": "^2.0.10",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.6",
+    "node": "^20.20.2",
     "tailwindcss": "^4",
     "typescript": "^5",
     "wrangler": "^4.131.0"
