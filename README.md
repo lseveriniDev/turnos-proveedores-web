@@ -2,12 +2,11 @@
 
 Portal público de reservas para proveedores. Esta aplicación contiene el formulario y sus funciones de reserva en Azure Static Web Apps. La [agenda interna](https://github.com/lseveriniDev/turnos-recepcion-interna) vive en otro repositorio y en otra Static Web App. Ambas aplicaciones comparten Cloud Firestore y la biblioteca de remitos de SharePoint.
 
-## Estado del portal (06/10/2026)
+## Estado del portal (07/10/2026)
 
-- Portal Azure publicado: <https://turnos-gottert.gottert.com.ar/>.
-- Agenda interna: <https://recepcion-gottert.gottert.com.ar/> (inicio de sesión Microsoft 365).
-- Dirección técnica de Azure: <https://green-forest-0f3977b0f.2.azurestaticapps.net/>.
-- DNS público validado en Azure. En la zona DNS interna de `gottert.com.ar` aún falta el CNAME `turnos-gottert` → `green-forest-0f3977b0f.2.azurestaticapps.net`; sin él, el nombre no resuelve desde la red de la empresa.
+- Portal Azure publicado: <https://green-forest-0f3977b0f.2.azurestaticapps.net/>.
+- Agenda interna: <https://happy-meadow-0b423e10f.5.azurestaticapps.net/> (inicio de sesión Microsoft 365).
+- Estos enlaces usan las direcciones de Azure y no requieren cambios en el DNS de la empresa. El dominio personalizado `turnos-gottert.gottert.com.ar` sigue configurado en Azure, pero no se usa en los enlaces mientras no resuelva en la red interna.
 - Portal anterior disponible como respaldo: <https://turnos-proveedores-gottert.pages.dev/>.
 - Firebase: proyecto `turnos-proveedores-gottert`, Firestore `southamerica-east1`, plan Spark.
 - SharePoint: `GOTTERT / Shared Documents / 05-Suministros / 1. Compras / 3. Registros / Turnos Proveedores`.
