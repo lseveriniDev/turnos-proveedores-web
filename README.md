@@ -1,10 +1,11 @@
 # Turnos de proveedores · Göttert
 
-Portal público de reservas para proveedores. Esta aplicación contiene el formulario y sus funciones de reserva en Azure Static Web Apps. La [agenda interna](https://github.com/lseveriniDev/turnos-recepcion-interna) vive en otro repositorio y en otra Static Web App. Ambas aplicaciones comparten Cloud Firestore y la biblioteca de remitos de SharePoint.
+Portal público de reservas para proveedores. La interfaz se publica en Azure App Service y sus funciones de reserva permanecen en Azure Static Web Apps. La [agenda interna](https://github.com/lseveriniDev/turnos-recepcion-interna) vive en otro repositorio y en otra Static Web App. Ambas aplicaciones comparten Cloud Firestore y la biblioteca de remitos de SharePoint.
 
 ## Estado del portal (07/10/2026)
 
-- Portal Azure publicado: <https://green-forest-0f3977b0f.2.azurestaticapps.net/>.
+- Portal Azure publicado: <https://turnos-proveedores-gottert-breufaddd2d9dbdr.eastus-01.azurewebsites.net/>.
+- API de reservas: <https://green-forest-0f3977b0f.2.azurestaticapps.net/>. La web pública envía sus solicitudes `/api/*` a esta aplicación; debe permanecer activa.
 - Agenda interna: <https://happy-meadow-0b423e10f.5.azurestaticapps.net/> (inicio de sesión Microsoft 365).
 - Estos enlaces usan las direcciones de Azure y no requieren cambios en el DNS de la empresa. El dominio personalizado `turnos-gottert.gottert.com.ar` sigue configurado en Azure, pero no se usa en los enlaces mientras no resuelva en la red interna.
 - Portal anterior disponible como respaldo: <https://turnos-proveedores-gottert.pages.dev/>.
@@ -23,7 +24,7 @@ La agenda interna se publica por separado y usa Microsoft 365. Las reglas de Fir
 
 ## Variables privadas de Azure
 
-Configurar en **Static Web App → Environment variables**:
+Configurar en **Static Web App → Environment variables** para la API. App Service solo sirve los archivos exportados y reenvía `/api/*`, por lo que no necesita estas credenciales:
 
 | Variable | Uso |
 | --- | --- |
@@ -60,7 +61,7 @@ cd api
 npm test
 ```
 
-El sitio se exporta a `out/`. La API está en `api/` y se publica junto al sitio. Para probarla localmente se necesita Azure Static Web Apps CLI y un `api/local.settings.json` privado con las mismas variables.
+El sitio se exporta a `out/`. El flujo de App Service empaqueta esos archivos y `app-service/server.js`, que atiende las páginas y reenvía `/api/*` a Static Web Apps. La API está en `api/` y se publica junto al sitio anterior. Para probarla localmente se necesita Azure Static Web Apps CLI y un `api/local.settings.json` privado con las mismas variables. El servidor de App Service se puede verificar con `npm run test:app-service`.
 
 El archivo histórico de Supabase se exportó a `.local/supabase-snapshot.json` (ignorado por Git). `scripts/migrate-supabase-snapshot.js` permite restaurarlo de forma controlada si hiciera falta. Los remitos de la versión anterior eran de prueba; no requieren copia operativa a SharePoint.
 
@@ -68,5 +69,5 @@ El archivo histórico de Supabase se exportó a `.local/supabase-snapshot.json` 
 
 - `firestore.rules` deniega todas las lecturas y escrituras directas; solo la API con credencial de servicio accede a los datos.
 - Esta API solo registra las rutas públicas de consulta y reserva. Las rutas `/api/staff-*` se publican únicamente en la aplicación interna.
-- El flujo de GitHub publica la rama `firebase-azure-migration` en el sitio Azure. La dirección anterior permanece separada.
+- Los flujos de GitHub publican la rama `firebase-azure-migration` en App Service (interfaz pública) y Static Web Apps (API). App Service comparte el plan existente `App-Service-Suministros` (B1).
 - El panel y el respaldo se verificaron con la cuenta autorizada. Antes de abrirlo a todos los proveedores, conviene que recepción haga una reserva propia y confirme su procedimiento de aprobación, llegada y anulación.
