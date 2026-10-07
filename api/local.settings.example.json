@@ -1,0 +1,16 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "",
+    "FUNCTIONS_WORKER_RUNTIME": "node",
+    "FIREBASE_PROJECT_ID": "turnos-proveedores-gottert",
+    "FIREBASE_SERVICE_ACCOUNT_B64": "",
+    "GRAPH_TENANT_ID": "",
+    "GRAPH_CLIENT_ID": "",
+    "GRAPH_CLIENT_SECRET": "",
+    "SHAREPOINT_DRIVE_ID": "",
+    "SHAREPOINT_FOLDER_ID": "",
+    "RESEND_API_KEY": "",
+    "MAIL_FROM": ""
+  }
+}

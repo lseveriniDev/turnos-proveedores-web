@@ -2,6 +2,7 @@
 
 # dependencies
 /node_modules
+/api/node_modules/
 /.pnp
 .pnp.*
 .yarn/*
@@ -50,5 +51,10 @@ next-env.d.ts
 .wrangler
 .dev.vars*
 !.dev.vars.example
+
+# Local migration exports and service credentials
+/.local/
+/api/local.settings.json
+/firebase-debug.log
 
 !.env.example
