@@ -6,7 +6,8 @@
     "build": "next build",
     "dev": "node scripts/dev-local.mjs",
     "dev:frontend": "next dev --webpack",
-    "start": "next start",
+    "start": "node app-service/server.js",
+    "test:app-service": "node --test app-service/server.test.js",
     "lint": "eslint",
     "preview": "wrangler pages dev out",
     "deploy:legacy": "npm run build && wrangler pages deploy out --project-name turnos-proveedores-gottert --branch master"
